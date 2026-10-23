@@ -1,0 +1,116 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Verify and build APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: Build, unit tests and lint
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease assembleDebugAndroidTest
+      - name: Verify installable APK and offline permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/StayOpen-1.0.0-debug.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/StayOpen-1.0.0-release-unsigned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/StayOpen-1.0.0-debug.apk > dist/APK-verification.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging dist/StayOpen-1.0.0-debug.apk >> dist/APK-verification.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions dist/StayOpen-1.0.0-debug.apk > dist/permissions.txt
+          if grep -Eq 'android.permission.(INTERNET|QUERY_ALL_PACKAGES|KILL_BACKGROUND_PROCESSES|FOREGROUND_SERVICE|WAKE_LOCK|RECEIVE_BOOT_COMPLETED|POST_NOTIFICATIONS)' dist/permissions.txt; then
+            echo 'Unexpected intrusive permission'; exit 1
+          fi
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          echo '### StayOpen APK downloads' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download **StayOpen-debug-apk** below, unzip it, and install StayOpen-1.0.0-debug.apk. Release unsigned APK is for developers and cannot be installed until signed.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StayOpen-debug-apk
+          path: |
+            dist/StayOpen-1.0.0-debug.apk
+            dist/APK-verification.txt
+            dist/permissions.txt
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StayOpen-release-unsigned
+          path: dist/StayOpen-1.0.0-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: StayOpen-test-and-lint-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 30
+
+  device-tests:
+    name: Android ${{ matrix.api-level }} device tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [33, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: default
+          profile: pixel_2
+          disable-animations: true
+          script: ./gradlew --no-daemon connectedDebugAndroidTest
+      - name: Collect app screenshots
+        if: always()
+        run: adb pull /sdcard/Android/data/dev.hamweb.stayopen.debug/files/screenshots screenshots || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: StayOpen-android-${{ matrix.api-level }}-device-results
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            screenshots/
+          retention-days: 30
