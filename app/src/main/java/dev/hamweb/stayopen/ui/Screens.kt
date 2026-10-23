@@ -28,12 +28,13 @@ import dev.hamweb.stayopen.data.SettingsNavigator
 import dev.hamweb.stayopen.domain.*
 
 @Composable
-fun DashboardScreen(s: StayOpenState, model: StayOpenViewModel) {
-    Page("A little more headroom.", "Understand your phone. Make space for what matters.") {
+fun DashboardScreen(s: StayOpenState, model: StayOpenViewModel, onCsv: () -> Unit) {
+    Page("SYSTEM MONITOR", "Real telemetry. Local control. Zero noise.") {
+        item { MonitorStatus(s) }
         item {
             Panel {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Eyebrow("LIVE MEMORY")
+                    Eyebrow("MEMORY / LIVE")
                     Badge(if (s.monitoring) "Visible app only" else "Paused")
                 }
                 val snapshot = s.snapshot
@@ -44,9 +45,9 @@ fun DashboardScreen(s: StayOpenState, model: StayOpenViewModel) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(when (snapshot.memory.pressure) {
-                                Pressure.NORMAL -> "Room to\nkeep going"
-                                Pressure.ELEVATED -> "Less room\nto switch"
-                                Pressure.HIGH -> "Ease the\nworkload"
+                                Pressure.NORMAL -> "Memory\nnominal"
+                                Pressure.ELEVATED -> "Headroom\nreduced"
+                                Pressure.HIGH -> "Pressure\nwarning"
                             }, style = MaterialTheme.typography.headlineMedium)
                             Text("Estimated pressure", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Badge(snapshot.memory.pressure.label, snapshot.memory.pressure == Pressure.HIGH)
@@ -76,11 +77,13 @@ fun DashboardScreen(s: StayOpenState, model: StayOpenViewModel) {
                     Text("Your RAM, over time", style = MaterialTheme.typography.titleLarge)
                     Text("${s.samples.size} / 360", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 }
-                MemoryGraph(s.samples, s.preferences.activeProfile.intervalSeconds)
+                MemoryGraph(s.samples, AutoCarePolicy.sampleInterval(s.preferences.activeProfile.intervalSeconds, s.preferences.autoCareEnabled, s.snapshot?.memory?.pressure))
                 Text("In-use RAM · ${s.preferences.activeProfile.intervalSeconds}s interval · gaps are unmonitored. The graph stays in memory for this app session.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        item { MemoryComparison(s, model, onCsv) }
         s.snapshot?.let { snapshot ->
+            item { HardwareTelemetry(snapshot) }
             item {
                 Panel {
                     Eyebrow("INTERNAL STORAGE")
@@ -102,6 +105,7 @@ fun DashboardScreen(s: StayOpenState, model: StayOpenViewModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator) {
     var picker by rememberSaveable { mutableStateOf(false) }
@@ -109,7 +113,7 @@ fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: S
     var reviewPackage by rememberSaveable { mutableStateOf<String?>(null) }
     val profile = s.preferences.activeProfile
     val selected = profile.packages.map { name -> s.apps.firstOrNull { it.packageName == name } ?: AppEntry(name, name) }.sortedBy { it.label.lowercase() }
-    Page("Protected Apps", "A personal setup plan for the apps you want to keep available.") {
+    Page("APP GUARD", "Your essentials. Your profiles. Android stays in control.") {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Eyebrow("CHOOSE A PROFILE")
@@ -119,18 +123,18 @@ fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: S
             }
         }
         item {
-            Panel {
-                Text(profile.name, style = MaterialTheme.typography.titleLarge)
-                Text(profile.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (profile.notes.isNotBlank()) Text(profile.notes, style = MaterialTheme.typography.bodyMedium)
-                Note("Profiles save your app choices and guidance. They cannot change Android's protected settings or reserve RAM.")
-                OutlinedButton(onClick = { edit = true }) { Text("Edit profile & preferences") }
-            }
-        }
-        item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Preferred apps · ${selected.size}", style = MaterialTheme.typography.titleMedium)
                 FilledTonalButton(onClick = { picker = true }) { Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Add apps") }
+            }
+        }
+        item {
+            Panel {
+                Eyebrow("${profile.reviewedPackages.intersect(profile.packages).size} / ${profile.packages.size} SETUPS SELF-REVIEWED")
+                Text(profile.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                if (profile.notes.isNotBlank()) Text(profile.notes, style = MaterialTheme.typography.bodyMedium)
+                Note("Profiles save your app choices and guidance. They cannot change Android's protected settings or reserve RAM.")
+                OutlinedButton(onClick = { edit = true }) { Text("Edit profile & preferences") }
             }
         }
         if (selected.isEmpty()) item {
@@ -157,9 +161,10 @@ fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: S
                 }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (app.packageName in profile.reviewedPackages) Badge("Setup reviewed by you")
                 if (s.apps.none { it.packageName == app.packageName }) Note("This app is no longer in the visible launcher list. It may be uninstalled or hidden.")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { reviewPackage = app.packageName }) { Text("Review setup") }
                     TextButton(onClick = { model.message(navigator.app(app.packageName)) }) { Text("App settings") }
+                    TextButton(onClick = { model.message(navigator.launchApp(app.packageName)) }) { Text("Launch app") }
                 }
             }
         }
@@ -246,8 +251,8 @@ private fun AppReviewDialog(app: AppEntry, device: DeviceInfo, oneUi: OneUi, rev
 @Composable
 fun OptimiseScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator, onApps: () -> Unit) {
     var guide by rememberSaveable { mutableStateOf<String?>(null) }
-    Page("Small changes. Real help.", "Useful actions that leave you in control.") {
-        item { Panel { Eyebrow("START HERE"); Text("Fix the restriction, not the RAM number.", style = MaterialTheme.typography.titleLarge); Note("StayOpen doesn't kill apps or promise a speed boost. Follow the actions relevant to your symptoms.") } }
+    Page("CARE CONSOLE", "Automate safe housekeeping. See exactly what changed.") {
+        item { AutoCarePanel(s, model) }
         if (model.device.isSamsung) item {
             Panel {
                 Eyebrow("SAMSUNG ASSISTANT")
@@ -265,31 +270,37 @@ fun OptimiseScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Settin
         item { SettingAction("Clear an app's cache", "Follow a safe, manual cache-clearing guide.", Icons.Default.Info) { guide = "cache" } }
         item { SettingAction("Battery optimisation", "Review Android's Doze exemption list.", Icons.Default.Settings) { model.message(navigator.battery()) } }
         item { SettingAction("Power saving", "Review battery saving if background work is delayed.", Icons.Default.Settings) { model.message(navigator.powerSaving()) } }
+        item { SettingAction("Activity lifetime settings", "Check Don't keep activities and the background process limit.", Icons.Default.Settings) { guide = "developer" } }
         if (model.device.isSamsung) item { SettingAction("Understand RAM Plus", "Storage-backed virtual memory, with real trade-offs.", Icons.Default.Info) { guide = "ramplus" } }
         item { SettingAction("Clear StayOpen temporary files", "Only this app's cache. Your files and profiles stay safe.", Icons.Default.Delete) { model.clearTemporaryFiles() } }
         item { Panel { Text("When apps keep reloading", style = MaterialTheme.typography.titleLarge); Text("Save work, reduce heavy browser tabs and game textures, then compare readings. Check for updates to the affected app and your phone. A restart can help a temporary fault; repeatedly clearing RAM can make apps reload more often.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        item { EventConsole(s) }
     }
     if (guide != null) AlertDialog(onDismissRequest = { guide = null },
-        title = { Text(if (guide == "cache") "Clear cache carefully" else "Samsung RAM Plus") },
+        title = { Text(when (guide) { "cache" -> "Clear cache carefully"; "developer" -> "Activity lifetime settings"; else -> "Samsung RAM Plus" }) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (guide == "cache") {
                 Text("Open Android Settings → Apps → choose the affected app → Storage → Clear cache.")
                 Text("Clear cache removes temporary data. Clear data / Clear storage can remove sign-ins, downloads or other app data. Read the button carefully.")
                 Text("Clearing a large or broken cache can help storage issues, but doing it repeatedly may slow app loading. StayOpen cannot clear another app's cache itself.")
+            } else if (guide == "developer") {
+                Text("If Developer options are already enabled, check Don't keep activities is off and Background process limit is set to Standard limit.")
+                Text("Don't keep activities can destroy an app's screen when you leave it. An artificially low process limit can also cause extra reloads. StayOpen can read the first setting where Android exposes it, but cannot read the full process-limit policy or change either setting.")
+                Text("You do not need to enable Developer options to use StayOpen. If this screen is unavailable, return to Android Settings.")
             } else {
                 Text(model.device.ramPlusPath(s.preferences.oneUi))
                 Text("RAM Plus lets Samsung use storage to support virtual memory. It is slower than physical RAM and does not add real RAM or guarantee an app stays open.")
                 Text("A larger setting is not always faster. Availability, values and an off switch depend on the phone and firmware. Review Samsung's own explanation and compare normal use after one change at a time. A restart may be requested.")
                 Text("StayOpen cannot reliably read or change the RAM Plus setting. If the path is missing, search Settings for RAM Plus.")
             }
-        } }, confirmButton = { TextButton(onClick = { model.message(if (guide == "cache") navigator.apps() else navigator.settings()) }) { Text("Open Android Settings") } },
+        } }, confirmButton = { TextButton(onClick = { model.message(when (guide) { "cache" -> navigator.apps(); "developer" -> navigator.developer(); else -> navigator.settings() }) }) { Text("Open Android Settings") } },
         dismissButton = { TextButton(onClick = { guide = null }) { Text("Close") } })
 }
 
 @Composable
 fun DiagnosticsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator, onApps: () -> Unit, onExport: () -> Unit, onUsage: () -> Unit) {
     val findings = remember(s.snapshot, s.restrictions) { s.snapshot?.let { DiagnosticsEngine.findings(it, s.restrictions, model.device.isSamsung) }.orEmpty() }
-    Page("Know what's happening.", "Measured signals, honest limits and a useful next step.") {
+    Page("SYSTEM DIAGNOSTICS", "Measured signals. Ranked fixes. A real event trail.") {
         item {
             Panel {
                 Eyebrow("PHONE HEALTH REPORT")
@@ -299,6 +310,7 @@ fun DiagnosticsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Set
                     Text("Memory: ${snap.memory.pressure.label.lowercase()} estimate · Android low-memory flag: ${if (snap.memory.systemLowMemory) "on" else "off"}", style = MaterialTheme.typography.bodyMedium)
                     Text("Android threshold: ${gib(snap.memory.thresholdBytes)} · Power saving: ${if (snap.powerSaver) "on" else "off"}", style = MaterialTheme.typography.bodyMedium)
                     Text("Thermal status: ${thermalLabel(snap.thermalStatus)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Don't keep activities: ${when (snap.alwaysFinishActivities) { true -> "ON · review this"; false -> "off"; null -> "unavailable" }}", style = MaterialTheme.typography.bodyMedium)
                     Text("Last measured ${dateTime(snap.memory.timeMs)}${if (!s.monitoring) " · monitoring paused" else ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Button(onClick = onExport) { Icon(Icons.Default.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Export diagnostic report") }
@@ -316,11 +328,13 @@ fun DiagnosticsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Set
                         Action.STORAGE -> model.message(navigator.storage())
                         Action.BATTERY -> model.message(navigator.powerSaving())
                         Action.SAMSUNG -> model.message(navigator.settings())
+                        Action.DEVELOPER -> model.message(navigator.developer())
                         Action.NONE -> Unit
                     }
-                }) { Text(when (finding.action) { Action.APPS -> "Review apps"; Action.STORAGE -> "Manage storage"; Action.SAMSUNG -> "Open Samsung Settings"; else -> "Review battery settings" }) }
+                }) { Text(when (finding.action) { Action.APPS -> "Review apps"; Action.STORAGE -> "Manage storage"; Action.SAMSUNG -> "Open Samsung Settings"; Action.DEVELOPER -> "Review Developer options"; else -> "Review battery settings" }) }
             }
         }
+        item { EventConsole(s) }
         item {
             Panel {
                 Eyebrow("LOW-MEMORY HISTORY")
@@ -368,14 +382,29 @@ fun DiagnosticsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Set
 fun thermalLabel(status: Int?): String = when (status) { null -> "Unavailable"; 0 -> "None"; 1 -> "Light"; 2 -> "Moderate"; 3 -> "Severe"; 4 -> "Critical"; 5 -> "Emergency"; 6 -> "Shutdown"; else -> "Unknown ($status)" }
 
 @Composable
-fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator, onUsage: () -> Unit) {
+fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator, onUsage: () -> Unit, onBackupExport: () -> Unit, onBackupImport: () -> Unit) {
     var clear by rememberSaveable { mutableStateOf(false) }
-    Page("Made to stay light.", "Your preferences. Your data. Your phone.") {
+    Page("CONTROL PANEL", "Tune the console. Keep your setup portable.") {
         item {
             Panel {
                 Text("Appearance", style = MaterialTheme.typography.titleLarge)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode -> FilterChip(s.preferences.theme == mode, onClick = { model.setTheme(mode) }, label = { Text(mode.name.lowercase().replaceFirstChar { it.titlecase() }) }) }
+                }
+                Text("Terminal accent", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Accent.entries.forEach { accent -> FilterChip(s.preferences.accent == accent, onClick = { model.setAccent(accent) }, label = { Text(accent.label) }) }
+                }
+            }
+        }
+        item {
+            Panel {
+                Eyebrow("SETUP / BACKUP & RESTORE")
+                Text("Keep your profiles", style = MaterialTheme.typography.titleLarge)
+                Text("Export app lists, profile notes, appearance and care preferences to a small JSON file. Importing asks before replacing the current setup. Android permissions and system settings are never changed by a backup.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onBackupExport) { Text("Export setup") }
+                    OutlinedButton(onClick = onBackupImport) { Text("Import setup") }
                 }
             }
         }
@@ -386,6 +415,11 @@ fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Settin
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PreferenceStore.INTERVALS.forEach { seconds -> FilterChip(s.preferences.activeProfile.intervalSeconds == seconds, onClick = { model.setInterval(seconds) }, label = { Text("${seconds}s") }) }
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Automatic housekeeping", Modifier.weight(1f))
+                    Switch(s.preferences.autoCareEnabled, onCheckedChange = model::setAutoCare)
+                }
+                Text("Auto care operates only while visible. High memory pressure backs sampling off to at least 10 seconds. See Optimise for exact actions and run history.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 s.snapshot?.let { Text("StayOpen managed heap: ${android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, it.appHeapBytes)}. This excludes native, graphics and shared memory.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
@@ -424,7 +458,7 @@ fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Settin
         }
     }
     if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear diagnostic history?") },
-        text = { Text("This removes saved low-memory observations and the current RAM graph. Profiles and app choices are kept. Active monitoring will collect new readings.") },
+        text = { Text("This removes low-memory observations, care history, the session baseline and the RAM graph. Profiles and app choices are kept. Active monitoring will collect new readings.") },
         confirmButton = { TextButton(onClick = { model.clearHistory(); clear = false }) { Text("Clear history") } },
         dismissButton = { TextButton(onClick = { clear = false }) { Text("Cancel") } })
 }

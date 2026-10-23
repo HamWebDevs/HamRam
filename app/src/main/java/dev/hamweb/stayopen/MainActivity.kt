@@ -22,6 +22,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
@@ -45,7 +46,7 @@ class MainActivity : ComponentActivity() {
         val navigator = SettingsNavigator(this)
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            StayOpenTheme(state.preferences.theme) { dark ->
+            StayOpenTheme(state.preferences.theme, state.preferences.accent) { dark ->
                 val view = LocalView.current
                 SideEffect {
                     WindowCompat.getInsetsController(window, view).apply {
@@ -75,6 +76,9 @@ private fun StayOpenApp(state: StayOpenState, model: StayOpenViewModel, navigato
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) model.exportReport(uri)
     }
+    val csvExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> if (uri != null) model.exportSamples(uri) }
+    val setupExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) model.exportSetup(uri) }
+    val setupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) model.inspectSetup(uri) }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); model.message(null) } }
     BackHandler(destination != Destination.DASHBOARD) { destination = Destination.DASHBOARD }
     BoxWithConstraints {
@@ -84,7 +88,10 @@ private fun StayOpenApp(state: StayOpenState, model: StayOpenViewModel, navigato
                 CenterAlignedTopAppBar(
                     title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         Icon(painterResource(R.drawable.ic_stayopen_mono), null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text("StayOpen", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Column {
+                            Text("STAYOPEN_", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text("LOCAL SYSTEM CONSOLE / ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
                     } },
                     actions = { IconButton(onClick = model::refresh, enabled = state.ready && !state.refreshing) {
                         Icon(Icons.Default.Refresh, "Refresh system readings")
@@ -110,16 +117,24 @@ private fun StayOpenApp(state: StayOpenState, model: StayOpenViewModel, navigato
                 Box(Modifier.weight(1f)) {
                     if (!state.ready) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     else when (destination) {
-                        Destination.DASHBOARD -> DashboardScreen(state, model)
+                        Destination.DASHBOARD -> DashboardScreen(state, model) { csvExport.launch("StayOpen-RAM-${System.currentTimeMillis()}.csv") }
                         Destination.APPS -> ProtectedAppsScreen(state, model, navigator)
                         Destination.OPTIMISE -> OptimiseScreen(state, model, navigator) { destination = Destination.APPS }
                         Destination.DIAGNOSTICS -> DiagnosticsScreen(state, model, navigator,
                             onApps = { destination = Destination.APPS }, onExport = { exportConsent = true }, onUsage = { usageConsent = true })
-                        Destination.SETTINGS -> SettingsScreen(state, model, navigator) { usageConsent = true }
+                        Destination.SETTINGS -> SettingsScreen(state, model, navigator, onUsage = { usageConsent = true },
+                            onBackupExport = { setupExport.launch("StayOpen-setup-${System.currentTimeMillis()}.json") },
+                            onBackupImport = { setupImport.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) })
                     }
                 }
             }
         }
+    }
+    state.pendingImport?.let { imported ->
+        AlertDialog(onDismissRequest = model::dismissImport, title = { Text("Restore this setup?") },
+            text = { Text("This backup contains ${imported.profiles.size} profiles and ${imported.profiles.sumOf { it.packages.size }} app selections. Importing replaces your current profiles and appearance preferences. Saved diagnostic history is kept. Usage insights remain off until you enable them again.") },
+            confirmButton = { TextButton(onClick = model::confirmImport) { Text("Restore setup") } },
+            dismissButton = { TextButton(onClick = model::dismissImport) { Text("Cancel") } })
     }
     if (usageConsent) AlertDialog(onDismissRequest = { usageConsent = false }, title = { Text("Enable optional usage insights?") },
         text = { Text("Android usage access can reveal which apps you use and when. StayOpen reads foreground-time summaries only when you open it or refresh, keeps them in memory and includes displayed usage in a report only when you choose to export it. Nothing is uploaded. You can turn insights off here and revoke access in Android Settings. Memory and protection guidance work without this permission.") },

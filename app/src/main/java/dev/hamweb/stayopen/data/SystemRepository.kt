@@ -6,10 +6,14 @@ import android.app.ApplicationExitInfo
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
+import android.os.BatteryManager
+import android.os.SystemClock
+import android.provider.Settings
 import android.os.Process
 import android.os.StatFs
 import dev.hamweb.stayopen.domain.*
@@ -24,11 +28,22 @@ class SystemRepository(private val context: Context) {
         val info = ActivityManager.MemoryInfo().also { activityManager.getMemoryInfo(it) }
         val storage = StatFs(Environment.getDataDirectory().absolutePath)
         val runtime = Runtime.getRuntime()
+        val battery = runCatching { context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }.getOrNull()
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val temperature = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val finishActivities = runCatching { Settings.Global.getString(context.contentResolver, Settings.Global.ALWAYS_FINISH_ACTIVITIES)?.toIntOrNull()?.let { it != 0 } }.getOrNull()
         return Snapshot(
             MemorySample(System.currentTimeMillis(), info.totalMem, info.availMem, info.threshold, info.lowMemory),
             storage.totalBytes, storage.availableBytes, powerManager.isPowerSaveMode, activityManager.isLowRamDevice,
             if (Build.VERSION.SDK_INT >= 29) powerManager.currentThermalStatus else null,
             runtime.totalMemory() - runtime.freeMemory(),
+            SystemClock.elapsedRealtime(),
+            if (level >= 0 && scale > 0) (level * 100 / scale).coerceIn(0, 100) else null,
+            temperature?.takeIf { it != Int.MIN_VALUE }?.div(10f),
+            status?.takeIf { it != -1 }?.let { it == BatteryManager.BATTERY_STATUS_CHARGING || it == BatteryManager.BATTERY_STATUS_FULL },
+            finishActivities,
         )
     }
 

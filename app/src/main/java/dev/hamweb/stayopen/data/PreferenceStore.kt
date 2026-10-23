@@ -9,31 +9,10 @@ import org.json.JSONObject
 class PreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("stayopen_v1", Context.MODE_PRIVATE)
 
-    fun load(): Preferences = runCatching {
-        val root = JSONObject(prefs.getString("preferences", "{}") ?: "{}")
-        val profiles = root.optJSONArray("profiles")?.let { rows ->
-            (0 until rows.length()).map { i ->
-                val p = rows.getJSONObject(i)
-                Profile(p.getString("id"), p.getString("name"), p.optString("description"),
-                    stringSet(p.optJSONArray("packages")), stringSet(p.optJSONArray("reviewed")),
-                    p.optInt("interval", 5).takeIf { it in INTERVALS } ?: 5, p.optString("notes"))
-            }
-        }?.takeIf { it.isNotEmpty() } ?: defaultProfiles()
-        val active = root.optString("active", "everyday").takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
-        Preferences(profiles, active,
-            enumValue(root.optString("theme"), ThemeMode.SYSTEM),
-            enumValue(root.optString("oneUi"), OneUi.AUTO), root.optBoolean("usage", false))
-    }.getOrElse { Preferences() }
+    fun load(): Preferences = runCatching { PreferencesCodec.decode(prefs.getString("preferences", "{}") ?: "{}") }.getOrElse { Preferences() }
 
     fun save(value: Preferences) {
-        val root = JSONObject().put("active", value.activeProfileId).put("theme", value.theme.name)
-            .put("oneUi", value.oneUi.name).put("usage", value.usageEnabled)
-            .put("profiles", JSONArray(value.profiles.map { p ->
-                JSONObject().put("id", p.id).put("name", p.name).put("description", p.description)
-                    .put("packages", JSONArray(p.packages.sorted())).put("reviewed", JSONArray(p.reviewedPackages.sorted()))
-                    .put("interval", p.intervalSeconds).put("notes", p.notes)
-            }))
-        check(prefs.edit().putString("preferences", root.toString()).commit()) { "Could not save preferences" }
+        check(prefs.edit().putString("preferences", PreferencesCodec.encode(value)).commit()) { "Could not save preferences" }
     }
 
     fun loadEvents(): List<LowMemoryEvent> = runCatching {
@@ -49,11 +28,21 @@ class PreferenceStore(context: Context) {
         }).toString()).commit()) { "Could not save low-memory history" }
     }
 
-    companion object {
-        val INTERVALS = listOf(5, 10, 15, 30)
-        private fun stringSet(a: JSONArray?): Set<String> = if (a == null) emptySet() else
-            (0 until a.length()).map { a.getString(it) }.toSet()
-        private inline fun <reified T : Enum<T>> enumValue(name: String, fallback: T): T =
-            runCatching { enumValueOf<T>(name) }.getOrDefault(fallback)
+    fun loadCareRuns(): List<CareRun> = runCatching {
+        val a = JSONArray(prefs.getString("care", "[]"))
+        (0 until a.length()).map { i -> a.getJSONObject(i).let {
+            CareRun(it.getLong("time"), CareReason.valueOf(it.getString("reason")), it.getLong("bytes"), it.getInt("icons"),
+                it.getLong("before"), if (it.isNull("after")) null else it.getLong("after"), it.getLong("duration"))
+        } }.takeLast(20)
+    }.getOrDefault(emptyList())
+
+    fun saveCareRuns(runs: List<CareRun>) {
+        check(prefs.edit().putString("care", JSONArray(runs.takeLast(20).map {
+            JSONObject().put("time", it.timeMs).put("reason", it.reason.name).put("bytes", it.clearedBytes)
+                .put("icons", it.iconsDropped).put("before", it.beforeAvailableBytes)
+                .put("after", it.afterAvailableBytes ?: JSONObject.NULL).put("duration", it.durationMs)
+        }).toString()).commit()) { "Could not save care history" }
     }
+
+    companion object { val INTERVALS = listOf(5, 10, 15, 30) }
 }

@@ -4,6 +4,8 @@
 
 StayOpen is a native Kotlin / Jetpack Compose Android memory and performance utility. It helps you understand memory pressure, review app background restrictions and make safe changes in Android Settings. It works offline, without root, advertising, subscriptions or analytics.
 
+**1.1.0 Terminal edition:** neon console styling, three accent colours, automatic own-app housekeeping, battery / temperature / uptime telemetry, activity-destruction diagnostics, session comparisons, RAM CSV export and setup backup / restore. See [what changed and exactly what auto care does](docs/WHATS-NEW.md).
+
 **It cannot reserve RAM, override Android's low-memory killer or guarantee that another app stays alive.** “Protected Apps” is a personal setup plan, not an operating-system protection mechanism.
 
 ## Install the real APK
@@ -11,7 +13,7 @@ StayOpen is a native Kotlin / Jetpack Compose Android memory and performance uti
 1. Sign in to GitHub and open [Actions → Android APK](https://github.com/HamWebDevs/HamRam/actions/workflows/android.yml).
 2. Choose the latest run with a green **Verify and build APKs** job. Open its summary.
 3. Under **Artifacts**, download **StayOpen-debug-apk**. GitHub downloads a ZIP; extract it.
-4. Open **StayOpen-1.0.0-debug.apk** on your Android phone. If prompted, allow “Install unknown apps” for the file manager or browser you are using, then tap **Install**. You can revoke that install permission afterwards.
+4. Open **StayOpen-1.1.0-debug.apk** on your Android phone. If prompted, allow “Install unknown apps” for the file manager or browser you are using, then tap **Install**. You can revoke that install permission afterwards.
 5. Open **StayOpen**. Live monitoring works without any runtime permission. Optional usage insights require a separate, clearly explained Android special-access grant.
 
 The debug APK is signed and installable. It uses `dev.hamweb.stayopen.debug` and can coexist with a production release. GitHub artifacts require sign-in and expire after 90 days; rerun the workflow to regenerate them. An unsigned release APK is **not** an installation download.
@@ -46,6 +48,8 @@ Debug signing keys are build-machine keys. A later debug APK from a different ru
 - A cancellable coroutine runs within `repeatOnLifecycle(STARTED)` and stops when the activity is not visible. There are no services, boot receivers, jobs, alarms, wake locks or background polling.
 - Default sampling is every 5 seconds; profiles can use 5, 10, 15 or 30 seconds. At most 360 RAM samples remain in memory. Graph gaps represent unmonitored time.
 - At most 100 observed transitions into Android's `lowMemory` state are stored locally. Returning to StayOpen during an existing warning creates a new observation. History is not evidence that a particular app was killed.
+- Automatic care clears only StayOpen's own temporary files and reusable icon-cache references, using the visible monitoring loop. High pressure backs sampling off to at least 10 seconds. Up to 20 care runs are retained. It never counts a system RAM change as memory reclaimed by the app.
+- Setup backups contain all profile app lists and notes. Import is bounded to 200 KB, validated and confirmed before replacement; it cannot grant permissions. RAM samples can also be exported as raw UTC CSV.
 - Usage insights are off by default, read only with user opt-in **and** Android permission, and remain in memory. Android aggregates usage in time buckets, so its returned totals may extend beyond the requested 24-hour window.
 - Preferences and observations use private app storage. Android backup is disabled. Reports can contain app names, foreground usage and your profile notes; export only to a destination you choose and share deliberately.
 - The application has **no INTERNET permission**. No broad installed-app enumeration, accessibility service, storage permission or device administrator access is requested. Launcher visibility is scoped through `<queries>`.
@@ -83,6 +87,8 @@ Without production signing environment variables, release builds deliberately re
 ## Verification
 
 The Actions workflow builds debug and R8-shrunk release APKs, runs domain / Samsung guidance tests, runs Android lint, compiles device tests, verifies the debug APK signature, and checks the APK does not request network or intrusive management permissions. Separate emulator jobs exercise real system APIs, all five screens, app selection UI, profile editing and persistence on API 33 and 35.
+
+Device tests also cover safe-care results, background suspension and backup validation. Each emulator job installs the R8-shrunk release with a runner-local test signature and checks that its dashboard launches. This test signature is not a production key.
 
 For local device testing:
 

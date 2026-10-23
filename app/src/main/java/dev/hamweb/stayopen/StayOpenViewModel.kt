@@ -2,6 +2,7 @@ package dev.hamweb.stayopen
 
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.hamweb.stayopen.data.*
@@ -9,6 +10,7 @@ import dev.hamweb.stayopen.domain.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
 
 data class StayOpenState(
     val ready: Boolean = false,
@@ -25,6 +27,10 @@ data class StayOpenState(
     val refreshing: Boolean = false,
     val message: String? = null,
     val samplingError: String? = null,
+    val careRuns: List<CareRun> = emptyList(),
+    val careRunning: Boolean = false,
+    val baseline: Snapshot? = null,
+    val pendingImport: Preferences? = null,
 )
 
 class StayOpenViewModel(application: Application) : AndroidViewModel(application) {
@@ -36,6 +42,9 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
     private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
     private var previousLow = false
     private var visible = false
+    private var previousPressure: Pressure? = null
+    private var lastCareUptimeMs: Long? = null
+    private val careMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -45,8 +54,12 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
             }
         }
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) { store.load() to store.loadEvents() }
-            _state.update { it.copy(ready = true, preferences = loaded.first, events = loaded.second) }
+            val loaded = withContext(Dispatchers.IO) { Triple(store.load(), store.loadEvents(), store.loadCareRuns()) }
+            loaded.third.lastOrNull()?.let {
+                val age = (System.currentTimeMillis() - it.timeMs).coerceAtLeast(0)
+                lastCareUptimeMs = SystemClock.elapsedRealtime() - age.coerceAtMost(AutoCarePolicy.INTERVAL_MS)
+            }
+            _state.update { it.copy(ready = true, preferences = loaded.first, events = loaded.second, careRuns = loaded.third) }
         }
     }
 
@@ -62,11 +75,14 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
                     state.first { it.monitoring }
                 }
                 takeSample()
-                delay(state.value.preferences.activeProfile.intervalSeconds * 1_000L)
+                val current = state.value
+                delay(AutoCarePolicy.sampleInterval(current.preferences.activeProfile.intervalSeconds,
+                    current.preferences.autoCareEnabled, current.snapshot?.memory?.pressure) * 1_000L)
             }
         } finally {
             visible = false
             previousLow = false // A return to the app starts a new, explicitly bounded observation.
+            previousPressure = null
         }
     }
 
@@ -83,6 +99,10 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
                 writes.send { store.saveEvents(events) }
             }
             previousLow = snapshot.memory.systemLowMemory
+            val reason = AutoCarePolicy.reason(state.value.preferences.autoCareEnabled, SystemClock.elapsedRealtime(),
+                lastCareUptimeMs, previousPressure, snapshot.memory.pressure)
+            previousPressure = snapshot.memory.pressure
+            if (reason != null) performCare(reason)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { _state.update { it.copy(samplingError = "Couldn't read system statistics. Last reading is retained; try Refresh.") } }
     }
@@ -126,6 +146,8 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
     fun toggleApp(packageName: String) {
+        val selected = state.value.preferences.activeProfile.packages
+        if (packageName !in selected && selected.size >= 200) return message("A profile supports up to 200 selected apps.")
         editProfile { p -> p.copy(packages = if (packageName in p.packages) p.packages - packageName else p.packages + packageName) }
         refreshRestrictions()
     }
@@ -142,14 +164,17 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
     fun setInterval(seconds: Int) { if (seconds in PreferenceStore.INTERVALS) editProfile { it.copy(intervalSeconds = seconds) } }
     fun saveProfileDetails(name: String, notes: String) = editProfile { it.copy(name = name.trim().take(40).ifBlank { it.name }, notes = notes.take(2000)) }
     fun setTheme(mode: ThemeMode) = preferences { it.copy(theme = mode) }
+    fun setAccent(accent: Accent) = preferences { it.copy(accent = accent) }
+    fun setAutoCare(enabled: Boolean) = preferences { it.copy(autoCareEnabled = enabled) }
     fun setOneUi(mode: OneUi) = preferences { it.copy(oneUi = mode) }
     fun setUsage(enabled: Boolean) { preferences { it.copy(usageEnabled = enabled) }; if (!enabled) _state.update { it.copy(usage = emptyList()) } else refresh() }
 
     fun clearHistory() {
-        _state.update { it.copy(samples = emptyList(), events = emptyList()) }
+        _state.update { it.copy(samples = emptyList(), events = emptyList(), careRuns = emptyList(), baseline = null) }
         previousLow = false
         writes.trySend { store.saveEvents(emptyList()) }
-        message("RAM graph and saved low-memory observations cleared.")
+        writes.trySend { store.saveCareRuns(emptyList()) }
+        message("RAM graph, baseline, warning observations and care history cleared.")
     }
 
     fun clearTemporaryFiles() { viewModelScope.launch {
@@ -159,12 +184,83 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
         } catch (_: Exception) { message("Couldn't clear every temporary file. No personal files were touched.") }
     } }
 
+    fun captureBaseline() {
+        val snapshot = state.value.snapshot ?: return message("Wait for a real system reading first.")
+        _state.update { it.copy(baseline = snapshot) }
+        message("Baseline saved from the ${java.text.DateFormat.getTimeInstance().format(java.util.Date(snapshot.memory.timeMs))} reading. Compare it after normal phone use.")
+    }
+
+    fun runCare() { viewModelScope.launch { performCare(CareReason.MANUAL) } }
+
+    private suspend fun performCare(reason: CareReason) {
+        if (!visible || !careMutex.tryLock()) return
+        _state.update { it.copy(careRunning = true) }
+        lastCareUptimeMs = SystemClock.elapsedRealtime()
+        try {
+            val result = withContext(Dispatchers.IO) {
+                val started = SystemClock.elapsedRealtime()
+                val before = repository.snapshot()
+                val cleared = repository.clearOwnTemporaryFiles()
+                val icons = IconCache.clear()
+                val after = runCatching { repository.snapshot() }.getOrNull()
+                CareRun(System.currentTimeMillis(), reason, cleared, icons, before.memory.availableBytes,
+                    after?.memory?.availableBytes, SystemClock.elapsedRealtime() - started) to after
+            }
+            val runs = (state.value.careRuns + result.first).takeLast(20)
+            _state.update { it.copy(careRuns = runs, snapshot = result.second ?: it.snapshot) }
+            writes.send { store.saveCareRuns(runs) }
+            if (reason == CareReason.MANUAL) message("Safe care complete: ${android.text.format.Formatter.formatShortFileSize(getApplication(), result.first.clearedBytes)} of StayOpen cache deleted; ${result.first.iconsDropped} reusable icons dropped.")
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { message("Care could not finish. It only accesses StayOpen's own temporary files and icon cache.") }
+        finally { _state.update { it.copy(careRunning = false) }; careMutex.unlock() }
+    }
+
+    fun exportSetup(uri: Uri) { val text = PreferencesCodec.encode(state.value.preferences); writeDocument(uri, text, "Setup backup saved.") }
+    fun exportSamples(uri: Uri) = writeDocument(uri, ReportExporter.csv(state.value.samples), "RAM samples saved as CSV.")
+
+    private fun writeDocument(uri: Uri, text: String, success: String) { viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(text) } ?: error("No writable destination")
+            }
+            message(success)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { message("Couldn't save this file. Try another location.") }
+    } }
+
+    fun inspectSetup(uri: Uri) { viewModelScope.launch {
+        try {
+            val imported = withContext(Dispatchers.IO) {
+                val bytes = ByteArray(PreferencesCodec.MAX_BACKUP_BYTES + 1)
+                val text = getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                    var count = 0
+                    while (count < bytes.size) { val n = input.read(bytes, count, bytes.size - count); if (n < 0) break; count += n }
+                    require(count <= PreferencesCodec.MAX_BACKUP_BYTES)
+                    String(bytes, 0, count, Charsets.UTF_8)
+                } ?: error("No readable file")
+                PreferencesCodec.decode(text, requireBackup = true)
+            }
+            _state.update { it.copy(pendingImport = imported) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { message("This is not a supported StayOpen setup backup, or it exceeds the 200 KB limit.") }
+    } }
+
+    fun dismissImport() { _state.update { it.copy(pendingImport = null) } }
+    fun confirmImport() {
+        val imported = state.value.pendingImport ?: return
+        // A backup cannot grant Android special access. Optional insights remain off after import.
+        preferences { imported.copy(usageEnabled = false) }
+        _state.update { it.copy(pendingImport = null, restrictions = emptyList(), usage = emptyList()) }
+        refreshRestrictions(); refresh()
+        message("Setup restored. Android permissions and protected system settings were not changed.")
+    }
+
     fun exportReport(uri: Uri) { viewModelScope.launch {
         val s = state.value
         try {
             withContext(Dispatchers.IO) {
                 val report = ReportExporter.create(BuildConfig.VERSION_NAME, device, s.snapshot, s.preferences,
-                    s.apps, s.restrictions, s.samples, s.events, s.usage, s.exits)
+                    s.apps, s.restrictions, s.samples, s.events, s.usage, s.exits, s.careRuns, s.baseline)
                 getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(report) }
                     ?: error("No writable destination")
             }

@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiagnosticsEngineTest {
+    @Test fun activityDestructionSettingRanksAboveMemoryGuesses() {
+        val snapshot = snapshot().copy(alwaysFinishActivities = true)
+        val finding = DiagnosticsEngine.findings(snapshot, emptyList(), false).first()
+        assertEquals("activities", finding.id)
+        assertEquals(Action.DEVELOPER, finding.action)
+        assertEquals(Evidence.MEASURED, finding.evidence)
+    }
     private fun sample(available: Long = 4 * GIB, threshold: Long = GIB / 2, low: Boolean = false) =
         MemorySample(1L, 8 * GIB, available, threshold, low)
     private fun snapshot(memory: MemorySample = sample(), storage: Long = 32 * GIB, saver: Boolean = false, thermal: Int? = 0) =

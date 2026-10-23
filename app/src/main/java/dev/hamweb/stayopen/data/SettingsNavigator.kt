@@ -31,6 +31,12 @@ class SettingsNavigator(private val context: Context) {
     fun storage() = open(Intent(StorageManager.ACTION_MANAGE_STORAGE),
         Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS), Intent(Settings.ACTION_SETTINGS))
     fun settings() = open(Intent(Settings.ACTION_SETTINGS))
+    fun developer() = open(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), Intent(Settings.ACTION_SETTINGS))
+    fun launchApp(packageName: String): String? {
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return "This app does not have an available launcher screen."
+        return open(intent)
+    }
     fun usageAccess() = open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS,
         Uri.parse("package:${context.packageName}")), Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), Intent(Settings.ACTION_SETTINGS))
 }

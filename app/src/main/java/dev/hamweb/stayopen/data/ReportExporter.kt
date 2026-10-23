@@ -4,6 +4,8 @@ import dev.hamweb.stayopen.domain.*
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 
 object ReportExporter {
     private fun bytes(value: Long) = String.format(Locale.UK, "%.2f GiB (%d bytes)", value.toDouble() / GIB, value)
@@ -13,6 +15,7 @@ object ReportExporter {
         version: String, device: DeviceInfo, snapshot: Snapshot?, preferences: Preferences,
         apps: List<AppEntry>, restrictions: List<AppRestriction>, samples: List<MemorySample>,
         events: List<LowMemoryEvent>, usage: List<UsageEntry>, exits: List<OwnExit>,
+        careRuns: List<CareRun> = emptyList(), baseline: Snapshot? = null,
     ): String = buildString {
         appendLine("STAYOPEN · DIAGNOSTIC REPORT")
         appendLine("Generated: ${date(System.currentTimeMillis())}")
@@ -32,6 +35,8 @@ object ReportExporter {
             appendLine("Internal data volume: ${bytes(snapshot.storageTotalBytes)} total; ${bytes(snapshot.storageAvailableBytes)} available")
             appendLine("Power saving: ${snapshot.powerSaver}; low-RAM device flag: ${snapshot.lowRamDevice}")
             appendLine("Thermal status: ${snapshot.thermalStatus ?: "not available"} (Android: 0 none, 1 light, 2 moderate, 3 severe, 4 critical, 5 emergency, 6 shutdown)")
+            appendLine("Battery: ${snapshot.batteryPercent ?: "unknown"}% · battery sensor temperature: ${snapshot.batteryTemperatureC ?: "unknown"} °C · charging/full: ${snapshot.charging ?: "unknown"}")
+            appendLine("Since last boot: ${snapshot.uptimeMs} ms · Don't keep activities: ${snapshot.alwaysFinishActivities ?: "unavailable"}")
             appendLine("StayOpen managed heap in use: ${bytes(snapshot.appHeapBytes)} (not total app RAM)")
             appendLine()
             appendLine("HEALTH REPORT · ranked recommendations, not a diagnosis")
@@ -57,6 +62,16 @@ object ReportExporter {
         appendLine("LOW-MEMORY OBSERVATIONS · ${events.size}, bounded to 100, gaps are unmonitored")
         events.forEach { appendLine("${date(it.timeMs)} · ${bytes(it.availableBytes)} available · threshold ${bytes(it.thresholdBytes)}") }
         appendLine()
+        appendLine("AUTO CARE · ${if (preferences.autoCareEnabled) "enabled while visible" else "disabled"}")
+        appendLine("Own temporary files and reusable icon-cache references only. No system-wide RAM clearing, process killing or protected settings changes. Automatic sampling backs off to at least 10 seconds at high pressure.")
+        careRuns.forEach { run ->
+            appendLine("${date(run.timeMs)} · ${run.reason.label} · own cache deleted=${run.clearedBytes} bytes · icons dropped=${run.iconsDropped} · available RAM before=${run.beforeAvailableBytes}, after=${run.afterAvailableBytes ?: "unavailable"} · duration=${run.durationMs} ms")
+        }
+        appendLine("Before/after RAM changes include other system activity and are not evidence of RAM reclaimed by StayOpen.")
+        baseline?.let {
+            appendLine("SESSION BASELINE · ${date(it.memory.timeMs)} · available RAM=${it.memory.availableBytes} bytes · available storage=${it.storageAvailableBytes} bytes")
+        }
+        appendLine()
         appendLine("OPTIONAL APP USAGE · ${if (preferences.usageEnabled) "enabled" else "disabled"}")
         appendLine("Android aggregated foreground use queried for the last 24 hours. System bucket boundaries may include time outside that window. Usage is not RAM use or evidence of an app closure.")
         usage.forEach { appendLine("${it.label} (${it.packageName}): ${it.foregroundMs / 60_000} foreground minutes; last used ${date(it.lastUsedMs)}") }
@@ -74,5 +89,13 @@ object ReportExporter {
         appendLine("https://developer.android.com/reference/android/app/ActivityManager.MemoryInfo")
         appendLine("https://developer.android.com/reference/android/os/PowerManager")
         appendLine("https://www.samsung.com/us/support/answer/ANS10003442/")
+    }
+
+    fun csv(samples: List<MemorySample>): String {
+        val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        return buildString {
+            appendLine("timestamp_utc,total_bytes,available_bytes,used_bytes,threshold_bytes,android_low_memory,estimated_pressure")
+            samples.forEach { appendLine("${format.format(Date(it.timeMs))},${it.totalBytes},${it.availableBytes},${it.usedBytes},${it.thresholdBytes},${it.systemLowMemory},${it.pressure.name}") }
+        }
     }
 }

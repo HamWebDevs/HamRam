@@ -6,6 +6,7 @@ import android.util.LruCache
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,9 +30,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import dev.hamweb.stayopen.domain.*
+import dev.hamweb.stayopen.data.IconCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -41,12 +44,22 @@ import java.util.Locale
 fun gib(bytes: Long): String = String.format(Locale.getDefault(), "%.1f GiB", bytes.toDouble() / GIB)
 fun time(timeMs: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timeMs))
 fun dateTime(timeMs: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timeMs))
+fun uptime(timeMs: Long): String = "${timeMs / 3_600_000}h ${(timeMs / 60_000) % 60}m"
+fun delta(bytes: Long): String = String.format(Locale.getDefault(), "%+.2f GiB", bytes.toDouble() / GIB)
 
 @Composable
 fun Page(title: String, subtitle: String, content: LazyListScope.() -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        val grid = MaterialTheme.colorScheme.primary.copy(alpha = .035f)
+        Canvas(Modifier.fillMaxSize()) {
+            val gap = 26.dp.toPx()
+            var x = 0f
+            while (x < size.width) { drawLine(grid, Offset(x, 0f), Offset(x, size.height)); x += gap }
+            var y = 0f
+            while (y < size.height) { drawLine(grid, Offset(0f, y), Offset(size.width, y)); y += gap }
+        }
         LazyColumn(Modifier.widthIn(max = 760.dp).fillMaxHeight(),
-            contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Column(Modifier.padding(top = 10.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -61,19 +74,19 @@ fun Page(title: String, subtitle: String, content: LazyListScope.() -> Unit) {
 
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(26.dp)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .19f))) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
     }
 }
 
 @Composable
-fun Eyebrow(text: String) = Text(text, color = MaterialTheme.colorScheme.primary,
+fun Eyebrow(text: String) = Text(">_ $text", color = MaterialTheme.colorScheme.primary,
     style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
 
 @Composable
 fun Badge(text: String, warning: Boolean = false) {
     val c = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Surface(color = c.copy(alpha = .12f), shape = RoundedCornerShape(9.dp)) {
+    Surface(color = c.copy(alpha = .12f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, c.copy(alpha = .2f))) {
         Text(text, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = c, style = MaterialTheme.typography.labelMedium)
     }
 }
@@ -89,16 +102,16 @@ fun Note(text: String, icon: ImageVector = Icons.Default.Info) {
 @Composable
 fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(value, style = MaterialTheme.typography.titleLarge)
+        Text(value, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
 fun SettingAction(title: String, detail: String, icon: ImageVector = Icons.Default.Settings, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(24.dp)) {
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(14.dp)) {
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(6.dp)) {
                 Icon(icon, null, Modifier.padding(12.dp).size(24.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -135,6 +148,7 @@ fun MemoryRing(sample: MemorySample, modifier: Modifier = Modifier) {
 fun MemoryGraph(samples: List<MemorySample>, intervalSeconds: Int) {
     val line = MaterialTheme.colorScheme.primary
     val grid = MaterialTheme.colorScheme.outlineVariant
+    val thresholdColor = MaterialTheme.colorScheme.error
     val description = if (samples.isEmpty()) "No RAM samples collected" else
         "${samples.size} real RAM samples. Latest usage ${(samples.last().usedFraction * 100).toInt()} percent. Gaps are unmonitored."
     if (samples.isEmpty()) {
@@ -149,6 +163,11 @@ fun MemoryGraph(samples: List<MemorySample>, intervalSeconds: Int) {
             }
             Canvas(Modifier.weight(1f).fillMaxHeight().padding(vertical = 6.dp).semantics { contentDescription = description }) {
                 for (i in 0..4) drawLine(grid.copy(alpha = .6f), Offset(0f, size.height * i / 4), Offset(size.width, size.height * i / 4), 1.dp.toPx())
+                val last = samples.last()
+                if (last.totalBytes > 0 && last.thresholdBytes > 0) {
+                    val y = (last.thresholdBytes.toFloat() / last.totalBytes).coerceIn(0f, 1f) * size.height
+                    drawLine(thresholdColor.copy(alpha = .7f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 5.dp.toPx())))
+                }
                 val start = samples.first().timeMs
                 val duration = (samples.last().timeMs - start).coerceAtLeast(intervalSeconds * 1000L)
                 fun point(s: MemorySample) = Offset(((s.timeMs - start).toFloat() / duration * size.width).coerceIn(0f, size.width), size.height * (1f - s.usedFraction))
@@ -166,20 +185,25 @@ fun MemoryGraph(samples: List<MemorySample>, intervalSeconds: Int) {
             Text(time(samples.first().timeMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(if (samples.size == 1) "First reading" else time(samples.last().timeMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        Text("Dashed line: current Android low-memory threshold", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        summariseMemory(samples)?.let { summary ->
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("AVAILABLE RAM / SESSION", style = MaterialTheme.typography.labelMedium, color = line)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Stat("Minimum", gib(summary.minimumAvailable), Modifier.weight(1f))
+                Stat("Average", gib(summary.averageAvailable), Modifier.weight(1f))
+                Stat("Maximum", gib(summary.maximumAvailable), Modifier.weight(1f))
+            }
+        }
     }
 }
-
-private object AppIconCache { val images = LruCache<String, ImageBitmap>(48) }
 
 @Composable
 fun AppIcon(packageName: String, label: String) {
     val context = LocalContext.current
-    val icon by produceState(AppIconCache.images.get(packageName), packageName) {
+    val icon by produceState(IconCache.peek(packageName)?.asImageBitmap(), packageName) {
         if (value == null) value = withContext(Dispatchers.IO) {
-            runCatching {
-                context.packageManager.getApplicationIcon(packageName).toBitmap(72, 72, Bitmap.Config.ARGB_8888)
-                    .asImageBitmap().also { AppIconCache.images.put(packageName, it) }
-            }.getOrNull()
+            IconCache.load(context, packageName)?.asImageBitmap()
         }
     }
     Surface(Modifier.size(46.dp), shape = RoundedCornerShape(13.dp), color = MaterialTheme.colorScheme.primaryContainer) {

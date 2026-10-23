@@ -5,6 +5,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReportExporterTest {
+    @Test fun csvUsesUtcAndRawMeasurementsWithoutInventingSamples() {
+        val csv = ReportExporter.csv(listOf(MemorySample(0, 1000, 400, 50, false)))
+        assertTrue(csv.contains("1970-01-01T00:00:00.000Z,1000,400,600,50,false,NORMAL"))
+        assertEquals(2, csv.trim().lines().size)
+        assertEquals(1, ReportExporter.csv(emptyList()).trim().lines().size)
+    }
+    @Test fun careReportDoesNotPresentSystemRamDeltasAsReclaimedRam() {
+        val care = CareRun(0, CareReason.MANUAL, 128, 2, 1000, 900, 12)
+        val report = ReportExporter.create("test", DeviceInfo("Google", "Pixel", "15", 35), null,
+            Preferences(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), listOf(care))
+        assertTrue(report.contains("own cache deleted=128 bytes"))
+        assertTrue(report.contains("available RAM before=1000, after=900"))
+        assertTrue(report.contains("not evidence of RAM reclaimed"))
+    }
     @Test fun reportKeepsMeasuredFactsAndUnverifiableClaimsSeparate() {
         val sample = MemorySample(1, 8 * GIB, GIB, GIB / 2, false)
         val snapshot = Snapshot(sample, 128 * GIB, 32 * GIB, false, false, 0, 20_000_000)

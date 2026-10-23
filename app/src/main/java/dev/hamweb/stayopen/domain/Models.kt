@@ -4,6 +4,7 @@ const val GIB = 1_073_741_824L
 
 enum class Pressure(val label: String) { NORMAL("Normal"), ELEVATED("Elevated"), HIGH("High") }
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
+enum class Accent(val label: String) { GREEN("Matrix green"), CYAN("Ice cyan"), AMBER("Amber terminal") }
 enum class OneUi(val label: String) {
     AUTO("Automatic · based on Android"), V5("One UI 4 / 5"), V6("One UI 6"), V7("One UI 7"), V8("One UI 8 or newer")
 }
@@ -34,6 +35,11 @@ data class Snapshot(
     val lowRamDevice: Boolean,
     val thermalStatus: Int?,
     val appHeapBytes: Long,
+    val uptimeMs: Long = 0,
+    val batteryPercent: Int? = null,
+    val batteryTemperatureC: Float? = null,
+    val charging: Boolean? = null,
+    val alwaysFinishActivities: Boolean? = null,
 )
 
 data class LowMemoryEvent(val timeMs: Long, val availableBytes: Long, val thresholdBytes: Long)
@@ -63,19 +69,22 @@ fun defaultProfiles() = listOf(
 data class Preferences(
     val profiles: List<Profile> = defaultProfiles(),
     val activeProfileId: String = "everyday",
-    val theme: ThemeMode = ThemeMode.SYSTEM,
+    val theme: ThemeMode = ThemeMode.DARK,
     val oneUi: OneUi = OneUi.AUTO,
     val usageEnabled: Boolean = false,
+    val accent: Accent = Accent.GREEN,
+    val autoCareEnabled: Boolean = true,
 ) {
     val activeProfile: Profile get() = profiles.firstOrNull { it.id == activeProfileId } ?: profiles.first()
 }
 
 enum class Evidence(val label: String) { MEASURED("Measured"), GUIDANCE("Possible explanation") }
-enum class Action { APPS, STORAGE, BATTERY, SAMSUNG, NONE }
+enum class Action { APPS, STORAGE, BATTERY, SAMSUNG, DEVELOPER, NONE }
 data class Finding(val id: String, val title: String, val detail: String, val evidence: Evidence, val priority: Int, val action: Action)
 
 object DiagnosticsEngine {
     fun findings(snapshot: Snapshot, selected: List<AppRestriction>, samsung: Boolean): List<Finding> = buildList {
+        if (snapshot.alwaysFinishActivities == true) add(Finding("activities", "Don't keep activities is enabled", "Android's activity-destruction setting is on. It can close an app's screen as soon as you leave it even when RAM is available. Open Developer options and switch Don't keep activities off. StayOpen reads this setting; it does not change it.", Evidence.MEASURED, 110, Action.DEVELOPER))
         when (snapshot.memory.pressure) {
             Pressure.HIGH -> add(Finding("memory", "Memory is under pressure", "Android reports low memory, or available RAM is at or below its reported low-memory threshold. Reduce the active workload and save work before switching apps. This does not identify which app, if any, was closed.", Evidence.MEASURED, 100, Action.APPS))
             Pressure.ELEVATED -> add(Finding("memory", "Less headroom for multitasking", "Available RAM is below StayOpen's conservative headroom estimate. Try fewer browser tabs or lower game textures. This estimate is not a reading of the kernel's memory-pressure system.", Evidence.MEASURED, 80, Action.APPS))
