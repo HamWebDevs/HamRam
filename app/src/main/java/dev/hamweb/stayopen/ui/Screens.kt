@@ -156,6 +156,7 @@ fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: S
                     null -> "Doze exemption status is unavailable"
                 }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (app.packageName in profile.reviewedPackages) Badge("Setup reviewed by you")
+                if (s.apps.none { it.packageName == app.packageName }) Note("This app is no longer in the visible launcher list. It may be uninstalled or hidden.")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { reviewPackage = app.packageName }) { Text("Review setup") }
                     TextButton(onClick = { model.message(navigator.app(app.packageName)) }) { Text("App settings") }

@@ -43,7 +43,11 @@ class SystemRepository(private val context: Context) {
     }
 
     fun restrictions(packages: Set<String>): List<AppRestriction> = packages.map { name ->
-        AppRestriction(name, runCatching { powerManager.isIgnoringBatteryOptimizations(name) }.getOrNull())
+        AppRestriction(name, runCatching {
+            if (Build.VERSION.SDK_INT >= 33) packageManager.getApplicationInfo(name, PackageManager.ApplicationInfoFlags.of(0))
+            else @Suppress("DEPRECATION") packageManager.getApplicationInfo(name, 0)
+            powerManager.isIgnoringBatteryOptimizations(name)
+        }.getOrNull())
     }
 
     fun hasUsagePermission(): Boolean {

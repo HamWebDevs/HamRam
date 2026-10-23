@@ -39,8 +39,15 @@ class StayOpenSmokeTest {
         compose.onNodeWithContentDescription("Navigate to Settings").performClick()
         compose.onNodeWithText("Made to stay light.").assertIsDisplayed()
         capture("settings")
+        compose.onNodeWithText("Dark").performClick()
         compose.onNodeWithContentDescription("Navigate to Dashboard").performClick()
-        capture("dashboard")
+        capture("dashboard-dark")
+        compose.onNodeWithContentDescription("Navigate to Settings").performClick()
+        compose.onNodeWithText("Light").performClick()
+        compose.onNodeWithContentDescription("Navigate to Dashboard").performClick()
+        capture("dashboard-light")
+        compose.onNodeWithContentDescription("Navigate to Settings").performClick()
+        compose.onNodeWithText("System").performClick()
     }
 
     private fun capture(name: String) {
@@ -85,5 +92,21 @@ class StayOpenSmokeTest {
         assertEquals(count, model.state.value.samples.size)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.waitUntil(15_000) { model.state.value.samples.size > count }
+    }
+
+    @Test fun temporaryFileCleanupPreservesPreferencesAndPrivateFiles() {
+        val context = compose.activity
+        val store = PreferenceStore(context)
+        val saved = store.load()
+        val keep = File(context.filesDir, "stayopen-cleanup-test.txt")
+        val temporary = File(context.cacheDir, "stayopen-temp-test.txt")
+        try {
+            keep.writeText("keep my data")
+            temporary.writeText("temporary bytes")
+            assertTrue(SystemRepository(context).clearOwnTemporaryFiles() >= 15)
+            assertFalse(temporary.exists())
+            assertEquals("keep my data", keep.readText())
+            assertEquals(saved, store.load())
+        } finally { keep.delete(); temporary.delete() }
     }
 }
