@@ -6,7 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Rule
@@ -52,10 +52,12 @@ class StayOpenSmokeTest {
 
     private fun capture(name: String) {
         compose.waitForIdle()
-        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        val directory = File(compose.activity.getExternalFilesDir(null), "screenshots").also { it.mkdirs() }
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        // Shell-owned test output survives AGP uninstalling the instrumented app after the tests.
+        for (command in listOf("mkdir -p /sdcard/Download/StayOpen-test-screenshots",
+            "screencap -p /sdcard/Download/StayOpen-test-screenshots/$name.png")) {
+            ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
+        }
     }
 
     @Test fun realSystemSnapshotContainsPlausiblePhysicalMeasurements() {

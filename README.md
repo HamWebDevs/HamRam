@@ -36,7 +36,7 @@ Debug signing keys are build-machine keys. A later debug APK from a different ru
 
 - Minimum Android 8.0 (API 26); compile / target Android 16 (API 36). Android 13, 15 and newer are supported through public APIs.
 - Intended Samsung targets: Galaxy S20+ (`SM-G985*` / `SM-G986*`), A17 (`SM-A175*` / `SM-A176*`) and A14 (`SM-A145*` / `SM-A146*`). Unknown variants retain their actual model string and still receive generic Samsung guidance.
-- No native binaries or CPU-specific code; works on practical ARM and x86 Android devices.
+- No app-specific native code. AndroidX supplies its own supported native graphics libraries; the APK includes ARM and x86 variants.
 - This app does not upgrade a phone's Android version. Hardware and firmware vary by region.
 - Exact Samsung sleeping lists, full per-app battery restriction modes and One UI version are not exposed through a stable public Android API. Those statuses are never reported as verified.
 - RAM Plus is guidance only. Not every phone offers every option.

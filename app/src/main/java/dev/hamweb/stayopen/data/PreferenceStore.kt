@@ -19,7 +19,8 @@ class PreferenceStore(context: Context) {
                     p.optInt("interval", 5).takeIf { it in INTERVALS } ?: 5, p.optString("notes"))
             }
         }?.takeIf { it.isNotEmpty() } ?: defaultProfiles()
-        Preferences(profiles, root.optString("active", "everyday"),
+        val active = root.optString("active", "everyday").takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
+        Preferences(profiles, active,
             enumValue(root.optString("theme"), ThemeMode.SYSTEM),
             enumValue(root.optString("oneUi"), OneUi.AUTO), root.optBoolean("usage", false))
     }.getOrElse { Preferences() }
