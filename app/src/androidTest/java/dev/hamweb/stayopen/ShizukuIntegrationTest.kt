@@ -85,7 +85,7 @@ class ShizukuIntegrationTest {
             assertTrue(run.beforeBytes > 0 && run.afterBytes > 0)
 
             shell("am start -W -n ${compose.activity.packageName}/.MainActivity")
-            compose.waitUntil(15_000) { compose.onAllNodesWithText("SYSTEM MONITOR").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(15_000) { runCatching { compose.onAllNodesWithText("SYSTEM MONITOR").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
             compose.onNodeWithContentDescription("Navigate to Optimise").performClick()
             compose.onNodeWithText("PRIVILEGED ACCESS / GRANTED").assertExists()
             shell("mkdir -p /sdcard/Download/StayOpen-test-screenshots")

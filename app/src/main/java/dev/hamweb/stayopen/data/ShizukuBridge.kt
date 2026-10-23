@@ -20,23 +20,29 @@ class ShizukuBridge(private val context: Context, private val changed: (BridgeAc
     private var remote: IRamService? = null
     private var pending: CompletableDeferred<IRamService>? = null
     private var binding = false
+    private var generation = 0L
+    private var activeConnection: ServiceConnection? = null
     private val args = Shizuku.UserServiceArgs(ComponentName(context, RamUserService::class.java))
         .tag("ram-clear-${context.applicationInfo.uid / 100_000}")
         .version(BuildConfig.VERSION_CODE).daemon(false).debuggable(BuildConfig.DEBUG).processNameSuffix("ram_bridge")
-    private val connection = object : ServiceConnection {
+    private fun connection(id: Long, reply: CompletableDeferred<IRamService>) = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            if (id != generation) return
             binding = false
-            if (binder == null) { pending?.completeExceptionally(IllegalStateException("No privileged worker")); return }
+            if (binder == null) { reply.completeExceptionally(IllegalStateException("No privileged worker")); return }
             remote = IRamService.Stub.asInterface(binder)
-            pending?.complete(remote!!)
+            reply.complete(remote!!)
         }
         override fun onServiceDisconnected(name: ComponentName?) {
+            // A previous unbind can report death after the next bind has already begun.
+            if (id != generation) return
             remote = null; binding = false
-            pending?.completeExceptionally(IllegalStateException("Privileged worker disconnected"))
+            reply.completeExceptionally(IllegalStateException("Privileged worker disconnected"))
         }
     }
     private val received = Shizuku.OnBinderReceivedListener { refresh() }
     private val dead = Shizuku.OnBinderDeadListener {
+        generation++; activeConnection = null
         remote = null; binding = false
         pending?.completeExceptionally(IllegalStateException("Shizuku stopped"))
         changed(BridgeAccess.STOPPED, "Shizuku stopped. Open it and start the service again.")
@@ -78,14 +84,23 @@ class ShizukuBridge(private val context: Context, private val changed: (BridgeAc
         check(refresh() == BridgeAccess.READY) { "Start Shizuku and grant StayOpen access first" }
         remote?.takeIf { it.asBinder().isBinderAlive }?.let { return@withContext it }
         if (pending?.isActive != true) pending = CompletableDeferred()
-        if (!binding) { binding = true; try { Shizuku.bindUserService(args, connection) } catch (e: Exception) { binding = false; pending?.completeExceptionally(e) } }
+        if (!binding) {
+            binding = true
+            val connection = connection(++generation, pending!!)
+            activeConnection = connection
+            try { Shizuku.bindUserService(args, connection) }
+            catch (e: Exception) { binding = false; pending?.completeExceptionally(e) }
+        }
         try { withTimeout(15_000) { pending!!.await() } }
         catch (e: Exception) { release(); throw e }
     }
 
     fun release() {
+        generation++
+        val connection = activeConnection
+        activeConnection = null
         pending?.cancel(); pending = null; remote = null
-        if (Shizuku.pingBinder()) runCatching { Shizuku.unbindUserService(args, connection, true) }
+        if (connection != null && Shizuku.pingBinder()) runCatching { Shizuku.unbindUserService(args, connection, true) }
         binding = false
     }
 }

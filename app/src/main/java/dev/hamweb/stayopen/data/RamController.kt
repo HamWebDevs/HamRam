@@ -99,7 +99,10 @@ class RamController private constructor(private val context: Context) {
             }
             _state.update { it.copy(candidates = candidates, scannedAtMs = System.currentTimeMillis()) }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { fail("Couldn't inspect cached processes. Check Shizuku access, then retry.") }
+        catch (error: Exception) {
+            if (dev.hamweb.stayopen.BuildConfig.DEBUG) android.util.Log.w("StayOpenRam", "Cached-process scan failed", error)
+            fail("Couldn't inspect cached processes. Check Shizuku access, then retry.")
+        }
         finally { finishOperation() }
     } }
 
@@ -128,7 +131,8 @@ class RamController private constructor(private val context: Context) {
                 withContext(Dispatchers.IO) { history.save(runs) }
             }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) {
+        catch (error: Exception) {
+            if (dev.hamweb.stayopen.BuildConfig.DEBUG) android.util.Log.w("StayOpenRam", "Cached-process clear failed", error)
             fail("RAM clearing couldn't finish. Check Shizuku and its StayOpen permission. No force-stop or file deletion was requested.")
             if (automatic) stopAutomatic()
         } finally { finishOperation() }
@@ -136,7 +140,8 @@ class RamController private constructor(private val context: Context) {
 
     private fun finishOperation() {
         _state.update { it.copy(busy = false) }; operation.unlock()
-        if (!visible && !state.value.automatic) bridge.release()
+        // Automatic checks use MemoryInfo only; no reason to keep a shell JVM between clears.
+        if (!visible) bridge.release()
     }
 
     private fun fail(message: String) { bridge.refresh(); _state.update { it.copy(error = message) } }
@@ -154,6 +159,9 @@ class RamController private constructor(private val context: Context) {
             var consecutive = 0
             try { while (isActive) {
                 if (bridge.refresh() != BridgeAccess.READY) break
+                if (!notificationAvailable()) {
+                    fail("Auto clear stopped because its Stop notification was disabled."); stopAutomatic(); break
+                }
                 val interactive = context.getSystemService(PowerManager::class.java).isInteractive
                 _state.update { it.copy(screenPaused = !interactive) }
                 if (interactive) {
@@ -174,13 +182,16 @@ class RamController private constructor(private val context: Context) {
     fun startAutomatic(): String? {
         if (bridge.refresh() != BridgeAccess.READY) return "Start Shizuku and grant StayOpen access first."
         if (preferences.ramClearApps.isEmpty()) return "Choose apps that may be cleared first."
-        if ((Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) ||
-            !NotificationManagerCompat.from(context).areNotificationsEnabled() ||
-            context.getSystemService(NotificationManager::class.java).getNotificationChannel(RamMonitorService.CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)
+        if (!notificationAvailable())
             return "Allow StayOpen's Automatic RAM clearing notification in Android Settings so its Stop control is visible."
         return runCatching { ContextCompat.startForegroundService(context, Intent(context, RamMonitorService::class.java)); null }
             .getOrElse { "Android couldn't start Auto clear. Keep StayOpen visible and try again." }
     }
+
+    private fun notificationAvailable(): Boolean =
+        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+            context.getSystemService(NotificationManager::class.java).getNotificationChannel(RamMonitorService.CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
 
     fun stopAutomatic() { endAutomaticSession(); context.stopService(Intent(context, RamMonitorService::class.java)) }
     fun endAutomaticSession() {

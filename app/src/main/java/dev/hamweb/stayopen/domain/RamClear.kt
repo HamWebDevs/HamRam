@@ -42,7 +42,8 @@ object RamClearPolicy {
             val uid = group.first().uid
             val packages = group.flatMap { it.packages }.toSet()
             // Also guards shared UIDs and secondary processes: one active or excluded member blocks the UID.
-            if (uid / 100_000 != userId || uid % 100_000 < 10_000 || packages.isEmpty() ||
+            // Normal app IDs are 10000..19999. Exclude isolated / SDK-sandbox UIDs too.
+            if (uid / 100_000 != userId || uid % 100_000 !in 10_000..19_999 || packages.isEmpty() ||
                 group.any { it.importance < CACHED_IMPORTANCE || it.pid <= 0 } ||
                 packages.any { !validPackage(it) || it !in allowed || it in protected }) null
             else RamCandidate(packages.sorted().first(), group.map { it.pid }.distinct().sorted())

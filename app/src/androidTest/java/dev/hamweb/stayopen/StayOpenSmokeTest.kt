@@ -33,7 +33,7 @@ class StayOpenSmokeTest {
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithContentDescription("Navigate to Optimise").performClick()
         compose.onNodeWithText("CARE CONSOLE").assertIsDisplayed()
-        compose.onNodeWithText("RAM CLEAR / SHIZUKU").assertExists()
+        compose.onNodeWithText("RAM CLEAR / SHIZUKU", substring = true).assertExists()
         capture("optimise")
         compose.onNodeWithContentDescription("Navigate to Diagnostics").performClick()
         compose.onNodeWithText("Export diagnostic report").assertExists()

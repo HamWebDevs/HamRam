@@ -1,12 +1,15 @@
 package dev.hamweb.stayopen.privileged
 
 import android.content.Context
+import android.os.Looper
 import org.json.JSONObject
 
 /** Debug APK only: runs the exact privileged implementation under adb shell in emulator CI. */
 object RamShellSmoke {
     @JvmStatic fun main(args: Array<String>) {
         try {
+            @Suppress("DEPRECATION")
+            if (Looper.getMainLooper() == null) Looper.prepareMainLooper()
             val activityThread = Class.forName("android.app.ActivityThread")
             val thread = activityThread.getMethod("systemMain").invoke(null)
             val system = activityThread.getMethod("getSystemContext").invoke(thread) as Context

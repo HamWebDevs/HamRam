@@ -35,7 +35,7 @@ Checks use only `ActivityManager.getMemoryInfo` at 30, 60 (default) or 120 secon
 
 Screen-off time is skipped without a wake lock, alarm or network activity. A coroutine delay does not wake the sleeping device. Shizuku must remain available. Leaving StayOpen keeps this explicitly enabled service running; Stop, loss of Shizuku access, Android stopping the service or reboot ends the session. There is no guarantee of continuous execution on Samsung firmware.
 
-The privileged worker is non-daemon and is released when the app becomes hidden with automation off, or when the automatic session ends while hidden. It never runs a private daemon indefinitely. The existing own-cache **Automatic housekeeping** feature remains separate and operates only while the dashboard's visible monitoring is active.
+The privileged worker is non-daemon and is released when the app becomes hidden with automation off, after background clearing operations, or when the automatic session ends while hidden. The interval checks themselves use MemoryInfo without holding a shell JVM. It never runs a private daemon indefinitely. The existing own-cache **Automatic housekeeping** feature remains separate and operates only while the dashboard's visible monitoring is active.
 
 ## Permissions and privacy
 

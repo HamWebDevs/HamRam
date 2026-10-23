@@ -32,7 +32,7 @@ class RamClearPolicyTest {
         assertEquals(1, RamClearPolicy.candidates(shared, setOf("example.game", "example.chat"), emptySet(), 0).size)
     }
     @Test fun systemUidAndOtherUsersAreExcluded() {
-        for (uid in listOf(0, 1000, 2000, 9999, 110_123))
+        for (uid in listOf(0, 1000, 2000, 9999, 20_000, 29_999, 99_001, 110_123))
             assertTrue(RamClearPolicy.candidates(listOf(process(uid = uid)), setOf("example.game"), emptySet(), 0).isEmpty())
     }
     @Test fun secondaryUserCanOnlyClearOwnApps() {
