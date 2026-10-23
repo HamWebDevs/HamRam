@@ -32,6 +32,14 @@ class SettingsNavigator(private val context: Context) {
         Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS), Intent(Settings.ACTION_SETTINGS))
     fun settings() = open(Intent(Settings.ACTION_SETTINGS))
     fun developer() = open(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), Intent(Settings.ACTION_SETTINGS))
+    fun shizuku(): String? {
+        val intent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+            ?: return "Install Shizuku from shizuku.rikka.app/download, then open it and start its service."
+        return open(intent)
+    }
+    fun web(url: String) = open(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    fun notifications() = open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        Intent(Settings.ACTION_SETTINGS))
     fun launchApp(packageName: String): String? {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: return "This app does not have an available launcher screen."

@@ -4,7 +4,7 @@
 
 StayOpen is a native Kotlin / Jetpack Compose Android memory and performance utility. It helps you understand memory pressure, review app background restrictions and make safe changes in Android Settings. It works offline, without root, advertising, subscriptions or analytics.
 
-**1.1.0 Terminal edition:** neon console styling, three accent colours, automatic own-app housekeeping, battery / temperature / uptime telemetry, activity-destruction diagnostics, session comparisons, RAM CSV export and setup backup / restore. See [what changed and exactly what auto care does](docs/WHATS-NEW.md).
+**1.2.0 Privileged RAM edition:** real cached-app clearing through explicitly granted Shizuku access, protected-app exclusions, optional automatic pressure monitoring with a Stop notification, and verified process-exit history. Keeps the neon terminal interface and all existing diagnostics. See [RAM clearing setup and exact behaviour](docs/RAM-CLEARING.md).
 
 **It cannot reserve RAM, override Android's low-memory killer or guarantee that another app stays alive.** “Protected Apps” is a personal setup plan, not an operating-system protection mechanism.
 
@@ -13,7 +13,7 @@ StayOpen is a native Kotlin / Jetpack Compose Android memory and performance uti
 1. Sign in to GitHub and open [Actions → Android APK](https://github.com/HamWebDevs/HamRam/actions/workflows/android.yml).
 2. Choose the latest run with a green **Verify and build APKs** job. Open its summary.
 3. Under **Artifacts**, download **StayOpen-debug-apk**. GitHub downloads a ZIP; extract it.
-4. Open **StayOpen-1.1.0-debug.apk** on your Android phone. If prompted, allow “Install unknown apps” for the file manager or browser you are using, then tap **Install**. You can revoke that install permission afterwards.
+4. Open **StayOpen-1.2.0-debug.apk** on your Android phone. If prompted, allow “Install unknown apps” for the file manager or browser you are using, then tap **Install**. You can revoke that install permission afterwards.
 5. Open **StayOpen**. Live monitoring works without any runtime permission. Optional usage insights require a separate, clearly explained Android special-access grant.
 
 The debug APK is signed and installable. It uses `dev.hamweb.stayopen.debug` and can coexist with a production release. GitHub artifacts require sign-in and expire after 90 days; rerun the workflow to regenerate them. An unsigned release APK is **not** an installation download.
@@ -27,6 +27,8 @@ Debug signing keys are build-machine keys. A later debug APK from a different ru
 | Dashboard | `ActivityManager.MemoryInfo` total / available RAM, Android low-memory flag and threshold, bounded RAM graph, `StatFs` internal storage, device / Android details |
 | Preferred apps | Search launchable apps, real app icons, per-profile selection, Doze-allowlist check, app settings shortcuts, manual setup review |
 | Diagnostics | Ranked findings, explicitly labelled estimates / possible explanations, storage and thermal checks, power-saving status, low-memory observations |
+| RAM clearing | Optional Shizuku shell privilege; explicitly selected cached user apps; every profile's protected apps excluded; observed process exits, no force-stop |
+| Automatic RAM clearing | Explicitly started foreground service, notification Stop, 30–120s checks while screen on, two pressure readings and five-minute cooldown |
 | Safe actions | Clear only StayOpen's own cache, system storage tools, app cache instructions, battery settings and RAM Plus guidance |
 | Profiles | Gaming, Everyday Use, Maximum Multitasking, Battery Saver and Custom; separate app lists, self-review records, editable names / notes / sampling preferences |
 | Samsung assistant | Detects Samsung and known S20+ / A17 / A14 model prefixes, adapts menu guidance to Android and an optional user-selected One UI version |
@@ -45,7 +47,7 @@ Debug signing keys are build-machine keys. A later debug APK from a different ru
 
 ## Monitoring and privacy
 
-- A cancellable coroutine runs within `repeatOnLifecycle(STARTED)` and stops when the activity is not visible. There are no services, boot receivers, jobs, alarms, wake locks or background polling.
+- A cancellable coroutine runs within `repeatOnLifecycle(STARTED)` and stops when the activity is not visible. With Auto clear off, there is no background monitoring. The separate, optional Shizuku-assisted RAM monitor runs a user-started foreground service with a Stop notification; no boot receiver, restart job, alarm or wake lock.
 - Default sampling is every 5 seconds; profiles can use 5, 10, 15 or 30 seconds. At most 360 RAM samples remain in memory. Graph gaps represent unmonitored time.
 - At most 100 observed transitions into Android's `lowMemory` state are stored locally. Returning to StayOpen during an existing warning creates a new observation. History is not evidence that a particular app was killed.
 - Automatic care clears only StayOpen's own temporary files and reusable icon-cache references, using the visible monitoring loop. High pressure backs sampling off to at least 10 seconds. Up to 20 care runs are retained. It never counts a system RAM change as memory reclaimed by the app.
@@ -86,9 +88,9 @@ Without production signing environment variables, release builds deliberately re
 
 ## Verification
 
-The Actions workflow builds debug and R8-shrunk release APKs, runs domain / Samsung guidance tests, runs Android lint, compiles device tests, verifies the debug APK signature, and checks the APK does not request network or intrusive management permissions. Separate emulator jobs exercise real system APIs, all five screens, app selection UI, profile editing and persistence on API 33 and 35.
+The Actions workflow builds debug and R8-shrunk release APKs, runs domain / Samsung guidance / clearing-policy tests, runs Android lint, compiles device tests, verifies signatures, and checks the APK does not request internet, broad package access, direct process-killing or file-management permissions. Separate emulator jobs exercise real system APIs, all five screens, app selection UI, profile editing and persistence on API 33 and 35.
 
-Device tests also cover safe-care results, background suspension and backup validation. Each emulator job installs the R8-shrunk release with a runner-local test signature and checks that its dashboard launches. This test signature is not a production key.
+Device tests also cover safe-care results, dashboard background suspension, backup validation, the real Shizuku permission grant, cached-process termination, foreground / protected exclusions and optional service start / stop. A separate disposable fixture APK is used only on CI emulators and is never bundled in StayOpen. Each emulator job installs the R8-shrunk release with a runner-local test signature and checks that its dashboard launches. This test signature is not a production key.
 
 For local device testing:
 
@@ -101,12 +103,14 @@ See [TESTING.md](docs/TESTING.md) for physical Samsung checks and honest limits 
 
 ## Architecture
 
-`domain/` contains platform-independent models and ranked diagnostic logic. `data/` owns public system APIs, bounded private persistence, settings-intent fallback and report formatting. `StayOpenViewModel` exposes immutable `StateFlow` state, serialises preference writes and coordinates foreground monitoring. `ui/` contains Compose Material 3 screens and lightweight charts; `MainActivity` owns activity lifecycle, file-picker contracts and adaptive navigation.
+`domain/` contains platform-independent models and ranked diagnostic logic. `data/` owns public system APIs, bounded private persistence, settings-intent fallback and report formatting. `StayOpenViewModel` exposes immutable `StateFlow` state, serialises preference writes and coordinates foreground dashboard monitoring. `RamController` serialises manual / automatic clearing, `ShizukuBridge` manages the grant and non-daemon UserService, and `RamMonitorService` owns the opt-in foreground session. `ui/` contains Compose Material 3 screens and lightweight charts; `MainActivity` owns activity lifecycle, file-picker contracts and adaptive navigation.
 
 No database, dependency-injection framework, chart SDK, web view or third-party telemetry is required.
 
 ## References
 
+- [Shizuku setup](https://shizuku.rikka.app/guide/setup/)
+- [Shizuku API / UserService](https://github.com/RikkaApps/Shizuku-API)
 - [Android MemoryInfo](https://developer.android.com/reference/android/app/ActivityManager.MemoryInfo)
 - [Android PowerManager](https://developer.android.com/reference/android/os/PowerManager)
 - [Doze and App Standby](https://developer.android.com/training/monitoring-device-state/doze-standby)

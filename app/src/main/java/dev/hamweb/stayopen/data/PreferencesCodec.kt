@@ -10,6 +10,7 @@ object PreferencesCodec {
     fun encode(value: Preferences): String = JSONObject().put("format", "stayopen-setup").put("schema", 2)
         .put("appearanceVersion", 2).put("active", value.activeProfileId).put("theme", value.theme.name)
         .put("accent", value.accent.name).put("autoCare", value.autoCareEnabled)
+        .put("ramClearApps", JSONArray(value.ramClearApps.sorted())).put("ramThreshold", value.ramThresholdPercent).put("ramCheck", value.ramCheckSeconds)
         .put("oneUi", value.oneUi.name).put("usage", value.usageEnabled)
         .put("profiles", JSONArray(value.profiles.map { p ->
             JSONObject().put("id", p.id).put("name", p.name).put("description", p.description)
@@ -38,7 +39,10 @@ object PreferencesCodec {
         val savedTheme = enumValue(root.optString("theme"), ThemeMode.DARK)
         val theme = if (root.optInt("appearanceVersion", 0) < 2 && savedTheme == ThemeMode.SYSTEM) ThemeMode.DARK else savedTheme
         return Preferences(profiles, active, theme, enumValue(root.optString("oneUi"), OneUi.AUTO),
-            root.optBoolean("usage", false), enumValue(root.optString("accent"), Accent.GREEN), root.optBoolean("autoCare", true))
+            root.optBoolean("usage", false), enumValue(root.optString("accent"), Accent.GREEN), root.optBoolean("autoCare", true),
+            stringSet(root.optJSONArray("ramClearApps")),
+            root.optInt("ramThreshold", 15).takeIf { it in RamClearPolicy.THRESHOLDS } ?: 15,
+            root.optInt("ramCheck", 60).takeIf { it in RamClearPolicy.CHECK_INTERVALS } ?: 60)
     }
     private fun stringSet(a: JSONArray?): Set<String> {
         if (a == null) return emptySet()

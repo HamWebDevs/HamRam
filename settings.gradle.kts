@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "StayOpen"
 include(":app")
+include(":ramfixture") // CI-only disposable target for real background-process clearing tests.

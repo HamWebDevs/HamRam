@@ -53,7 +53,8 @@ class SystemRepository(private val context: Context) {
         val results = if (Build.VERSION.SDK_INT >= 33)
             packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
         else @Suppress("DEPRECATION") packageManager.queryIntentActivities(intent, 0)
-        return results.map { AppEntry(it.activityInfo.packageName, it.loadLabel(packageManager).toString()) }
+        return results.map { AppEntry(it.activityInfo.packageName, it.loadLabel(packageManager).toString(),
+            it.activityInfo.applicationInfo.flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) }
             .filter { it.packageName != context.packageName }.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
     }
 

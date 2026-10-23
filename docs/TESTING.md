@@ -19,6 +19,12 @@
 7. Export a report to local Downloads, inspect actual values, notes and included privacy context, then cancel another export.
 8. Clear StayOpen's temporary files. Confirm profiles, saved observations, downloads and exported reports are unaffected.
 9. Test dark / light themes, landscape, gesture / three-button navigation, a large font setting and TalkBack. Confirm all actions can be reached by scrolling.
-10. After enough normal use, inspect battery usage and Android process records. No service / notification / alarm should remain after backgrounding.
+10. After enough normal use, inspect battery usage and Android process records. With Auto clear off, no service or notification should remain after backgrounding. With it explicitly enabled, the Stop notification should remain and end the service when used. No alarm or wake lock is used.
 
 Android emulators do not emulate Samsung's proprietary Settings app. An emulator pass is not evidence of verified physical Samsung menu paths or a measured reduction in app closures.
+
+## Shizuku / RAM checks
+
+CI pins official Shizuku 13.6.0 and starts it as **shell UID 2000**, not root. The end-to-end device test grants StayOpen through the actual Shizuku permission dialog, excludes a foreground fixture, preserves the cached fixture when protected in a profile, then observes its PID exit after unprotecting and clearing. It starts the notification-backed automatic service, backgrounds StayOpen, and verifies explicit stop. A debug-only shell entry also exercises the exact privileged implementation against an independently installed disposable test app. These run on Android 13 / 15 emulators; no personal apps or files are targets.
+
+On each Samsung phone, follow [RAM-CLEARING.md](RAM-CLEARING.md), verify the permission and all exclusions, try Stop from the notification, revoke Shizuku access and reboot. Record cases where firmware restricts shell process access. Test service survival and battery impact during normal use without assuming an emulator reproduces Samsung's background policies.

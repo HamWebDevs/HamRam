@@ -3,8 +3,12 @@ set -euo pipefail
 
 # Test-runner launcher ANRs must not obscure screenshots of the app under test.
 adb shell settings put global hide_error_dialogs 1
-./gradlew --no-daemon connectedDebugAndroidTest assembleRelease
+./gradlew --no-daemon :app:assembleDebug :ramfixture:assembleDebug
+bash ci/setup-shizuku.sh
+adb install -r ramfixture/build/outputs/apk/debug/ramfixture-debug.apk
+./gradlew --no-daemon :app:connectedDebugAndroidTest :app:assembleRelease -Pandroid.testInstrumentationRunnerArguments.privilegedTests=true
 adb pull /sdcard/Download/StayOpen-test-screenshots screenshots
+python3 ci/ram-clear-check.py
 
 # Also exercise the real R8-shrunk release code. This test-only signature is
 # unrelated to the maintainer's private production signing key.

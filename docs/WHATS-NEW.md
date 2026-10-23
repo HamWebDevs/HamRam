@@ -1,3 +1,11 @@
+# StayOpen 1.2.0 · Privileged RAM edition
+
+Real permission-based RAM clearing is now available through Shizuku. It includes a downloaded-app allowlist, exclusions from every Protected Apps profile, foreground / service / shared-UID guards, preview scans, observed process exits, before / after system readings, and optional background automation with a persistent Stop notification. Automation is off by default and does not restart after reboot.
+
+See [setup, limitations and exact policy](RAM-CLEARING.md). The same production package and private signing key allow a direct update from production 1.1.0. The previous terminal features below are retained; their own-cache housekeeping is separate from this new privileged process-clearing mode.
+
+---
+
 # StayOpen 1.1.0 · Terminal edition
 
 ## Console interface

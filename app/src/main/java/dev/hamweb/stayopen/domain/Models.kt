@@ -43,7 +43,7 @@ data class Snapshot(
 )
 
 data class LowMemoryEvent(val timeMs: Long, val availableBytes: Long, val thresholdBytes: Long)
-data class AppEntry(val packageName: String, val label: String)
+data class AppEntry(val packageName: String, val label: String, val systemApp: Boolean = false)
 data class AppRestriction(val packageName: String, val batteryExempt: Boolean?)
 data class UsageEntry(val packageName: String, val label: String, val foregroundMs: Long, val lastUsedMs: Long)
 data class OwnExit(val timeMs: Long, val reason: String, val description: String)
@@ -74,6 +74,9 @@ data class Preferences(
     val usageEnabled: Boolean = false,
     val accent: Accent = Accent.GREEN,
     val autoCareEnabled: Boolean = true,
+    val ramClearApps: Set<String> = emptySet(),
+    val ramThresholdPercent: Int = 15,
+    val ramCheckSeconds: Int = 60,
 ) {
     val activeProfile: Profile get() = profiles.firstOrNull { it.id == activeProfileId } ?: profiles.first()
 }

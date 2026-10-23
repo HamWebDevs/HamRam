@@ -133,7 +133,7 @@ fun ProtectedAppsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: S
                 Eyebrow("${profile.reviewedPackages.intersect(profile.packages).size} / ${profile.packages.size} SETUPS SELF-REVIEWED")
                 Text(profile.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 if (profile.notes.isNotBlank()) Text(profile.notes, style = MaterialTheme.typography.bodyMedium)
-                Note("Profiles save your app choices and guidance. They cannot change Android's protected settings or reserve RAM.")
+                Note("Apps in every profile are excluded from StayOpen's RAM clearing. Profiles also save guidance; they cannot reserve RAM or stop Android closing an app.")
                 OutlinedButton(onClick = { edit = true }) { Text("Edit profile & preferences") }
             }
         }
@@ -251,7 +251,9 @@ private fun AppReviewDialog(app: AppEntry, device: DeviceInfo, oneUi: OneUi, rev
 @Composable
 fun OptimiseScreen(s: StayOpenState, model: StayOpenViewModel, navigator: SettingsNavigator, onApps: () -> Unit) {
     var guide by rememberSaveable { mutableStateOf<String?>(null) }
-    Page("CARE CONSOLE", "Automate safe housekeeping. See exactly what changed.") {
+    Page("CARE CONSOLE", "Grant access. Clear cached apps. Keep your essentials.") {
+        item { RamClearPanel(s, model, navigator) }
+        item { RamAutomaticPanel(s, model, navigator) }
         item { AutoCarePanel(s, model) }
         if (model.device.isSamsung) item {
             Panel {
@@ -411,7 +413,7 @@ fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Settin
         item {
             Panel {
                 Text("Visible monitoring", style = MaterialTheme.typography.titleLarge)
-                Text("Runs only while StayOpen is on screen. No background service, wake lock or persistent notification. Choose a gentler interval for the ${s.preferences.activeProfile.name} profile.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Dashboard samples run only while StayOpen is on screen. Optional Auto clear in Optimise uses a separate, user-started service with a Stop notification. No wake locks. Choose a gentler dashboard interval for the ${s.preferences.activeProfile.name} profile.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PreferenceStore.INTERVALS.forEach { seconds -> FilterChip(s.preferences.activeProfile.intervalSeconds == seconds, onClick = { model.setInterval(seconds) }, label = { Text("${seconds}s") }) }
                 }
@@ -447,7 +449,7 @@ fun SettingsScreen(s: StayOpenState, model: StayOpenViewModel, navigator: Settin
                 Note("No internet permission, accounts, ads, analytics or subscriptions. Preferences and up to 100 warning observations stay on your device. Android backup is disabled. Reports leave only through the location you choose.")
             }
         }
-        item { SettingAction("Clear diagnostic history", "Remove the RAM graph and saved low-memory observations.", Icons.Default.Delete) { clear = true } }
+        item { SettingAction("Clear diagnostic history", "Remove RAM samples, warning observations and care / clearing history.", Icons.Default.Delete) { clear = true } }
         item {
             Panel {
                 Eyebrow("STAYOPEN ${BuildConfig.VERSION_NAME}")

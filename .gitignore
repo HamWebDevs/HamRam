@@ -9,3 +9,5 @@ local.properties
 keystore.properties
 captures/
 .DS_Store
+
+__pycache__/

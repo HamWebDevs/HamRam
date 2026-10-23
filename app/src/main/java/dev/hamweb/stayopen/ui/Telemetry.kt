@@ -22,6 +22,7 @@ fun MonitorStatus(s: StayOpenState) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Badge(if (s.monitoring) "MONITOR / ${interval}s" else "MONITOR / PAUSED")
         Badge(if (s.preferences.autoCareEnabled) "AUTO CARE / ON" else "AUTO CARE / OFF")
+        if (s.ram.automatic) Badge("AUTO RAM / ${s.preferences.ramCheckSeconds}s")
         Badge("OFFLINE / NO ROOT")
     }
 }
@@ -101,7 +102,8 @@ fun AutoCarePanel(s: StayOpenState, model: StayOpenViewModel) {
 @Composable
 fun EventConsole(s: StayOpenState) {
     val context = LocalContext.current
-    val events = (s.events.map { it.timeMs to "WARN  Android low-memory flag / ${gib(it.availableBytes)} available" } +
+    val events = (s.ram.runs.map { it.timeMs to "RAM   ${if (it.automatic) "Auto" else "Manual"} / ${it.exited}/${it.requested} cached processes exited" } +
+        s.events.map { it.timeMs to "WARN  Android low-memory flag / ${gib(it.availableBytes)} available" } +
         s.careRuns.map { it.timeMs to "CARE  ${it.reason.label} / cache ${android.text.format.Formatter.formatShortFileSize(context, it.clearedBytes)} / icons ${it.iconsDropped}" })
         .sortedByDescending { it.first }.take(12)
     Panel {
@@ -111,6 +113,6 @@ fun EventConsole(s: StayOpenState) {
             Text("${dateTime(at)}\n$event", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
                 color = if (event.startsWith("WARN")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         }
-        Text("Latest 12 events. Background time is unmonitored. Full saved history is included in the diagnostic report.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Latest 12 events. Detailed graphs and low-memory observations are captured while visible. Optional Auto clear records its runs in the background too. Full saved history is included in the diagnostic report.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

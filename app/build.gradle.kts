@@ -15,8 +15,8 @@ android {
         applicationId = "dev.hamweb.stayopen"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -37,7 +37,7 @@ android {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("production")
         }
     }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true; buildConfig = true; aidl = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -55,6 +55,8 @@ tasks.register("verifyReleaseSigning") {
 }
 
 dependencies {
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     val composeBom = platform("androidx.compose:compose-bom:2025.06.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -69,5 +71,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

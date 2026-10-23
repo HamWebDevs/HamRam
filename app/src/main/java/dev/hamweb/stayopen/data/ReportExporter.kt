@@ -16,6 +16,7 @@ object ReportExporter {
         apps: List<AppEntry>, restrictions: List<AppRestriction>, samples: List<MemorySample>,
         events: List<LowMemoryEvent>, usage: List<UsageEntry>, exits: List<OwnExit>,
         careRuns: List<CareRun> = emptyList(), baseline: Snapshot? = null,
+        ramRuns: List<RamRun> = emptyList(), ramAutomatic: Boolean = false,
     ): String = buildString {
         appendLine("STAYOPEN · DIAGNOSTIC REPORT")
         appendLine("Generated: ${date(System.currentTimeMillis())}")
@@ -63,7 +64,7 @@ object ReportExporter {
         events.forEach { appendLine("${date(it.timeMs)} · ${bytes(it.availableBytes)} available · threshold ${bytes(it.thresholdBytes)}") }
         appendLine()
         appendLine("AUTO CARE · ${if (preferences.autoCareEnabled) "enabled while visible" else "disabled"}")
-        appendLine("Own temporary files and reusable icon-cache references only. No system-wide RAM clearing, process killing or protected settings changes. Automatic sampling backs off to at least 10 seconds at high pressure.")
+        appendLine("Own temporary files and reusable icon-cache references only. This housekeeping mode does not kill processes or change protected settings; Shizuku RAM clearing is reported separately. Automatic sampling backs off to at least 10 seconds at high pressure.")
         careRuns.forEach { run ->
             appendLine("${date(run.timeMs)} · ${run.reason.label} · own cache deleted=${run.clearedBytes} bytes · icons dropped=${run.iconsDropped} · available RAM before=${run.beforeAvailableBytes}, after=${run.afterAvailableBytes ?: "unavailable"} · duration=${run.durationMs} ms")
         }
@@ -71,6 +72,15 @@ object ReportExporter {
         baseline?.let {
             appendLine("SESSION BASELINE · ${date(it.memory.timeMs)} · available RAM=${it.memory.availableBytes} bytes · available storage=${it.storageAvailableBytes} bytes")
         }
+        appendLine()
+        appendLine("SHIZUKU RAM CLEARING · automatic session ${if (ramAutomatic) "running" else "off"}")
+        appendLine("Selected clearing apps: ${preferences.ramClearApps.sorted().joinToString().ifEmpty { "none" }}")
+        appendLine("Automatic threshold: ${preferences.ramThresholdPercent}% available or Android threshold, whichever is higher; checks every ${preferences.ramCheckSeconds}s while interactive; two consecutive pressure readings; 5-minute automatic cooldown. All profiles' protected apps are excluded.")
+        ramRuns.forEach { run ->
+            appendLine("${date(run.timeMs)} · ${if (run.automatic) "automatic" else "manual"} · ${run.exited}/${run.requested} cached PIDs observed exited · system available RAM ${run.beforeBytes} → ${run.afterBytes} bytes · duration=${run.durationMs} ms")
+            run.outcomes.forEach { appendLine("  ${labels[it.packageName] ?: it.packageName} (${it.packageName}): ${it.exited}/${it.requested} exited; ${it.error ?: "no request error"}") }
+        }
+        appendLine("Shizuku must be running with granted access. The worker checks cached process importance, excludes system apps and protected UIDs, rechecks before each request and observes PIDs afterwards. Android killBackgroundProcesses is requested as shell/root; no force-stop, kill-all, arbitrary shell command or file deletion. Processes can restart. Available-RAM changes are not attributed to StayOpen.")
         appendLine()
         appendLine("OPTIONAL APP USAGE · ${if (preferences.usageEnabled) "enabled" else "disabled"}")
         appendLine("Android aggregated foreground use queried for the last 24 hours. System bucket boundaries may include time outside that window. Usage is not RAM use or evidence of an app closure.")
@@ -82,12 +92,13 @@ object ReportExporter {
         appendLine("LIMITS AND METHOD")
         appendLine("ActivityManager.getMemoryInfo, StatFs, PowerManager, optional UsageStatsManager and this app's ApplicationExitInfo. Used RAM = total - available; it includes useful caches and does not mean wasted memory.")
         appendLine("Estimated high pressure: Android lowMemory flag or available <= reported threshold. Elevated: available < max(2 × threshold, 15% of total). This is a heuristic, not kernel PSI or proof an app was killed.")
-        appendLine("StayOpen does not keep other processes alive, override the low-memory killer, read other apps' private memory, change protected settings, clear others' caches or force-stop apps. All monitoring stops when StayOpen is not visible.")
+        appendLine("StayOpen does not keep other processes alive, override the low-memory killer, read other apps' private memory, change protected settings, clear others' disk caches or force-stop apps. Detailed dashboard monitoring stops when hidden. The optional, user-started foreground Auto clear service continues pressure checks until stopped, pauses with screen off and never auto-starts on boot.")
         appendLine("Privacy: reports can contain app names, usage and your notes. Share only with someone you trust. No upload happens automatically.")
         appendLine()
         appendLine("REFERENCE LINKS (reading only; the application itself operates offline)")
         appendLine("https://developer.android.com/reference/android/app/ActivityManager.MemoryInfo")
         appendLine("https://developer.android.com/reference/android/os/PowerManager")
+        appendLine("https://shizuku.rikka.app/guide/setup/")
         appendLine("https://www.samsung.com/us/support/answer/ANS10003442/")
     }
 

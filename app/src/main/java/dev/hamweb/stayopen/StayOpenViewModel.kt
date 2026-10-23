@@ -31,11 +31,13 @@ data class StayOpenState(
     val careRunning: Boolean = false,
     val baseline: Snapshot? = null,
     val pendingImport: Preferences? = null,
+    val ram: RamState = RamState(),
 )
 
 class StayOpenViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = SystemRepository(application)
     private val store = PreferenceStore(application)
+    val ramController = RamController.get(application)
     val device = DeviceInfo()
     private val _state = MutableStateFlow(StayOpenState())
     val state = _state.asStateFlow()
@@ -47,6 +49,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
     private val careMutex = Mutex()
 
     init {
+        viewModelScope.launch { ramController.state.collect { ram -> _state.update { it.copy(ram = ram) } } }
         viewModelScope.launch {
             for (write in writes) {
                 try { withContext(Dispatchers.IO) { write() } }
@@ -59,6 +62,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
                 val age = (System.currentTimeMillis() - it.timeMs).coerceAtLeast(0)
                 lastCareUptimeMs = SystemClock.elapsedRealtime() - age.coerceAtMost(AutoCarePolicy.INTERVAL_MS)
             }
+            ramController.configure(loaded.first)
             _state.update { it.copy(ready = true, preferences = loaded.first, events = loaded.second, careRuns = loaded.third) }
         }
     }
@@ -68,6 +72,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
         state.first { it.ready }
         try {
             visible = true
+            ramController.setVisible(true)
             refreshContext()
             while (currentCoroutineContext().isActive) {
                 if (!state.value.monitoring) {
@@ -81,6 +86,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
             }
         } finally {
             visible = false
+            ramController.setVisible(false)
             previousLow = false // A return to the app starts a new, explicitly bounded observation.
             previousPressure = null
         }
@@ -132,6 +138,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
 
     private fun preferences(transform: (Preferences) -> Preferences) {
         val value = transform(state.value.preferences)
+        ramController.configure(value)
         _state.update { it.copy(preferences = value) }
         writes.trySend { store.save(value) }
     }
@@ -166,6 +173,18 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
     fun setTheme(mode: ThemeMode) = preferences { it.copy(theme = mode) }
     fun setAccent(accent: Accent) = preferences { it.copy(accent = accent) }
     fun setAutoCare(enabled: Boolean) = preferences { it.copy(autoCareEnabled = enabled) }
+    fun toggleRamClearApp(packageName: String) {
+        if (!RamClearPolicy.validPackage(packageName)) return
+        val selected = state.value.preferences.ramClearApps
+        if (packageName !in selected && selected.size >= 200) return message("Select up to 200 apps for RAM clearing.")
+        preferences { it.copy(ramClearApps = if (packageName in selected) selected - packageName else selected + packageName) }
+    }
+    fun chooseAllRamClearApps() = preferences { prefs -> prefs.copy(ramClearApps = state.value.apps
+        .filter { !it.systemApp && it.packageName !in prefs.profiles.flatMap(Profile::packages) && it.packageName != "moe.shizuku.privileged.api" }
+        .take(200).map { it.packageName }.toSet()) }
+    fun setRamThreshold(percent: Int) { if (percent in RamClearPolicy.THRESHOLDS) preferences { it.copy(ramThresholdPercent = percent) } }
+    fun setRamCheckInterval(seconds: Int) { if (seconds in RamClearPolicy.CHECK_INTERVALS) preferences { it.copy(ramCheckSeconds = seconds) } }
+    fun startRamAutomation() { ramController.startAutomatic()?.let(::message) }
     fun setOneUi(mode: OneUi) = preferences { it.copy(oneUi = mode) }
     fun setUsage(enabled: Boolean) { preferences { it.copy(usageEnabled = enabled) }; if (!enabled) _state.update { it.copy(usage = emptyList()) } else refresh() }
 
@@ -174,6 +193,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
         previousLow = false
         writes.trySend { store.saveEvents(emptyList()) }
         writes.trySend { store.saveCareRuns(emptyList()) }
+        ramController.clearHistory()
         message("RAM graph, baseline, warning observations and care history cleared.")
     }
 
@@ -249,6 +269,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
     fun confirmImport() {
         val imported = state.value.pendingImport ?: return
         // A backup cannot grant Android special access. Optional insights remain off after import.
+        ramController.stopAutomatic()
         preferences { imported.copy(usageEnabled = false) }
         _state.update { it.copy(pendingImport = null, restrictions = emptyList(), usage = emptyList()) }
         refreshRestrictions(); refresh()
@@ -260,7 +281,7 @@ class StayOpenViewModel(application: Application) : AndroidViewModel(application
         try {
             withContext(Dispatchers.IO) {
                 val report = ReportExporter.create(BuildConfig.VERSION_NAME, device, s.snapshot, s.preferences,
-                    s.apps, s.restrictions, s.samples, s.events, s.usage, s.exits, s.careRuns, s.baseline)
+                    s.apps, s.restrictions, s.samples, s.events, s.usage, s.exits, s.careRuns, s.baseline, s.ram.runs, s.ram.automatic)
                 getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(report) }
                     ?: error("No writable destination")
             }

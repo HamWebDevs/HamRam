@@ -33,7 +33,7 @@ class StayOpenSmokeTest {
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithContentDescription("Navigate to Optimise").performClick()
         compose.onNodeWithText("CARE CONSOLE").assertIsDisplayed()
-        compose.onNodeWithText("Run safe care").assertExists()
+        compose.onNodeWithText("RAM CLEAR / SHIZUKU").assertExists()
         capture("optimise")
         compose.onNodeWithContentDescription("Navigate to Diagnostics").performClick()
         compose.onNodeWithText("Export diagnostic report").assertExists()
@@ -120,6 +120,7 @@ class StayOpenSmokeTest {
 
     @Test fun setupBackupRoundTripsAllProfilesAndRejectsUntrustedShapes() {
         val setup = Preferences(accent = Accent.AMBER, autoCareEnabled = false,
+            ramClearApps = setOf("example.disposable"), ramThresholdPercent = 20, ramCheckSeconds = 120,
             profiles = defaultProfiles().map { if (it.id == "gaming") it.copy(packages = setOf("example.game"), reviewedPackages = setOf("example.game"), notes = "My settings") else it })
         val encoded = PreferencesCodec.encode(setup)
         assertEquals(setup, PreferencesCodec.decode(encoded, requireBackup = true))
