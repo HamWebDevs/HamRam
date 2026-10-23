@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+capture_screenshots() {
+  mkdir -p screenshots
+  adb pull /sdcard/Download/StayOpen-test-screenshots screenshots/ >/dev/null 2>&1 || true
+}
+trap capture_screenshots EXIT
 
 # Test-runner launcher ANRs must not obscure screenshots of the app under test.
 adb shell settings put global hide_error_dialogs 1

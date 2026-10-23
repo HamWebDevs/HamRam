@@ -100,7 +100,12 @@ class ShizukuBridge(private val context: Context, private val changed: (BridgeAc
         val connection = activeConnection
         activeConnection = null
         pending?.cancel(); pending = null; remote = null
-        if (connection != null && Shizuku.pingBinder()) runCatching { Shizuku.unbindUserService(args, connection, true) }
+        if (connection != null && Shizuku.pingBinder()) {
+            // remove=true kills the worker but does NOT clear Shizuku API's local callback list.
+            // Detach first, then destroy, so its delayed death cannot reach a subsequent bind.
+            runCatching { Shizuku.unbindUserService(args, connection, false) }
+            runCatching { Shizuku.unbindUserService(args, connection, true) }
+        }
         binding = false
     }
 }

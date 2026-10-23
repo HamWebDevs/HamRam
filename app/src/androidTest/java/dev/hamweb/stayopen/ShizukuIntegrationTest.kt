@@ -84,7 +84,7 @@ class ShizukuIntegrationTest {
             assertFalse(shell("pidof $fixture").split(' ').contains(pid))
             assertTrue(run.beforeBytes > 0 && run.afterBytes > 0)
 
-            shell("am start -W -n ${compose.activity.packageName}/.MainActivity")
+            shell("am start -W -n ${compose.activity.packageName}/dev.hamweb.stayopen.MainActivity")
             compose.waitUntil(15_000) { runCatching { compose.onAllNodesWithText("SYSTEM MONITOR").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
             compose.onNodeWithContentDescription("Navigate to Optimise").performClick()
             compose.onNodeWithText("PRIVILEGED ACCESS / GRANTED").assertExists()
@@ -108,7 +108,7 @@ class ShizukuIntegrationTest {
                 if ((fixture in model.state.value.preferences.ramClearApps) != (fixture in original.ramClearApps)) model.toggleRamClearApp(fixture)
             }
             compose.waitUntil(10_000) { PreferenceStore(compose.activity).load() == original }
-            shell("am start -W -n ${compose.activity.packageName}/.MainActivity")
+            shell("am start -W -n ${compose.activity.packageName}/dev.hamweb.stayopen.MainActivity")
         }
     }
 }
